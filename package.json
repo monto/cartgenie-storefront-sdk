@@ -1,0 +1,50 @@
+{
+  "name": "@cartgenie/storefront",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the CartGenie Storefront API: catalog, cart, and checkout for headless stores.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monto/cartgenie-storefront-sdk.git"
+  },
+  "homepage": "https://github.com/monto/cartgenie-storefront-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/monto/cartgenie-storefront-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "prepack": "npm run build",
+    "prepare": "npm run build",
+    "test": "vitest run tests/cartgenie.test.ts",
+    "test:smoke": "vitest run tests/smoke.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
