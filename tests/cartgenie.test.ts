@@ -92,6 +92,42 @@ describe('CartGenie SDK', () => {
     expect(init.headers.Accept).toBe('application/json');
   });
 
+  it('converts variant measurements from integer hundredths to decimals', async () => {
+    const variant = {
+      id: 11,
+      slug: 'red-l',
+      height: 2050,
+      length: 1000,
+      width: null,
+      weight: 12345,
+    };
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ data: { id: 1, name: 'T-Shirt', slug: 't-shirt', options: [], variants: [variant] } }),
+    );
+
+    const product = await sdk.products.get('t-shirt');
+
+    expect(product.variants[0]!.height).toBe(20.5);
+    expect(product.variants[0]!.length).toBe(10);
+    expect(product.variants[0]!.width).toBeNull();
+    expect(product.variants[0]!.weight).toBe(123.45);
+  });
+
+  it('converts variant measurements on the catalog listing', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        data: [
+          { id: 1, name: 'T-Shirt', slug: 't-shirt', options: [], variants: [{ id: 11, slug: 'red-l', weight: 50 }] },
+        ],
+        meta: { next_cursor: null },
+      }),
+    );
+
+    const page = await sdk.products.list();
+
+    expect(page.data[0]!.variants[0]!.weight).toBe(0.5);
+  });
+
   it('joins slugs for slug-based product fetches', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }));
 

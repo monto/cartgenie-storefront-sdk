@@ -12,7 +12,7 @@ Applies to headless stores (`integration_mode = headless`, `headless_store` feat
   - `Accept: application/json`
   - `Content-Type: application/json` (on requests with a body)
 
-The public API key is a store-scoped token shown on the headless onboarding success screen (and in the store dashboard). It identifies the store; all endpoints operate on that store's data only.
+The public API key is a store-scoped token shown on the headless onboarding success screen and in the dashboard under Settings → Storefront API, where admins can also copy it or rotate it (rotation invalidates the old key immediately — the storefront must be updated with the new one). It identifies the store; all endpoints operate on that store's data only.
 
 ## Conventions
 
@@ -38,13 +38,17 @@ Each product:
   "id": 1,
   "name": "T-Shirt",
   "slug": "t-shirt",
+  "meta_description": "Plain-text summary for the page meta description, or null.",
+  "gallery": ["https://.../gallery-1.jpg", "https://.../gallery-2.jpg"],
   "images": { "image_url": "...", "image_url_large": "..." },
   "options": [
     { "name": "Color", "slug": "color", "values": [{ "value": "Red", "value_slug": "red" }] }
   ],
   "variants": [ { "id": 11, "slug": "red-l", "sku": "TS-RL", "price": 1900, "formatted_price": "$19.00",
                   "out_of_stock": false, "stock_quantity": 5, "track_inventory": true,
-                  "shippable": true, "image_url": "..." } ],
+                  "shippable": true, "image_url": "...", "extra_images": ["..."],
+                  "height": 2050, "length": 1000, "width": 500, "weight": 12345,
+                  "dimension_unit": "cm", "weight_unit": "kg" } ],
   "kind": "single"
 }
 ```
@@ -54,6 +58,9 @@ Notes:
 - Add to cart by the variant's `id` (`product_variant_id` below). Do not reconstruct variants from option slugs client-side; per-variant option maps are not in the payload. Render one select per `options[]` entry and track which variant the selection maps to.
 - Nullable/inactive fields may be omitted from variant objects.
 - Image URLs point at CartGenie-hosted media; hotlink or proxy them as you prefer.
+- The listing intentionally omits `description` to keep catalog pages light. Fetch the single product (`GET /product/{slug}`) on the product detail page — that response includes `description`: store-authored HTML, render it in a rich-text block (sanitized). `meta_description` belongs in the page's meta description tag. Both can be `null` when the merchant hasn't filled them in.
+- `gallery` (product level) and each variant's `extra_images` are additional image URL lists. On a product page show the selected variant's image(s), not a flat dump of every variant's images; preload the gallery/variant images in the background for instant option switches.
+- Variant `height` / `length` / `width` / `weight` come from the API as integer hundredths of the store's configured measurement units (`2050` = 20.5). The SDK's `products` resource converts them to decimals for you — render SDK values as-is, labeled with `dimension_unit` / `weight_unit`. When calling the API directly, divide by 100 before displaying.
 
 ### Fetch specific products by slug
 
@@ -69,7 +76,7 @@ Returns up to 50 products matching the given slugs. Works for every store type a
 GET /product/{slug}
 ```
 
-Single product, same shape as the listing.
+Single product, same shape as the listing plus `description` (rich-text HTML or `null`) — the endpoint to use on product detail pages.
 
 ### List categories
 
@@ -322,6 +329,10 @@ The response carries the updated cart in `data`, plus two top-level keys: `payme
 After `success`, discard the stored cart guid — the cart is finalized and must not receive further requests.
 
 `GET /order/{order}` returns an order by id (for confirmation deep-links or webhook-driven flows).
+
+## Going live with real payments
+
+The `dummy` gateway is the store's test mode: while it is enabled, real gateways (Stripe, PayPal) are hidden from payment-methods so no live charge can happen. To switch a store to real payments the merchant does it in the CartGenie dashboard — Settings → Payment Gateways: connect Stripe (and/or PayPal), then disable the Dummy gateway. The storefront needs no code change — the payment-methods response starts returning the real gateways and their `payload` / `data.methods`, and the same checkout flow applies.
 
 ## Keeping a static frontend fresh
 

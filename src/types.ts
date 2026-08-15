@@ -24,6 +24,15 @@ export interface ProductVariant {
   shippable?: boolean;
   image_url?: string | null;
   image_url_large?: string | null;
+  extra_images?: string[];
+  /** The SDK converts these from the API's integer hundredths to decimals (2050 → 20.5), in the store's configured measurement units. Render as-is — never re-scale. */
+  height?: number | null;
+  length?: number | null;
+  width?: number | null;
+  weight?: number | null;
+  /** Store-configured measurement units for labeling, passed through unchanged. */
+  dimension_unit?: string;
+  weight_unit?: string;
   [key: string]: unknown;
 }
 
@@ -31,6 +40,11 @@ export interface Product {
   id: number;
   name: string;
   slug: string;
+  /** Store-authored HTML. Present on single-product responses only — the catalog listing omits it. */
+  description?: string | null;
+  meta_description?: string | null;
+  /** Product-level gallery image URLs (variant images live on each variant). */
+  gallery?: string[];
   images?: { image_url?: string | null; image_url_large?: string | null };
   options: ProductOption[];
   variants: ProductVariant[];
