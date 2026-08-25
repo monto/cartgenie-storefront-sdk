@@ -22,9 +22,9 @@ What the store should be:
 
 Catalog — a tidy grid of products with photos and prices, linking to a product detail page for each product.
 
-Product detail page — the product's name, rich description, photo gallery, SKU, price, and stock/availability state. If the product comes in variations (size, colour, etc.), the shopper picks each option; the price, photo, SKU, dimensions and availability update to match the selected variant, and the gallery shows the selected variant's images (never a flat dump of every variant's images). Show physical dimensions and weight with their units when present. Preload gallery and variant images in the background so switching options is instant. Put the product's meta description into the page's meta description tag.
+Product detail page — the product's name, rich description, photo gallery, SKU, price, and stock/availability state. If the product comes in variations (size, color, etc.), the shopper picks each option; the price, photo, SKU, dimensions and availability update to match the selected variant, and the gallery shows the selected variant's images (never a flat dump of every variant's images). Show physical dimensions and weight with their units when present. Preload gallery and variant images in the background so switching options is instant. Put the product's meta description into the page's meta description tag.
 
-Cart — every item with its photo, the chosen options (e.g. "Size: M, Colour: Red"), a quantity selector and a remove button. A box for a discount code. A clear total that lists subtotal, discount, shipping and tax separately.
+Cart — every item with its photo, the chosen options (e.g. "Size: M, Color: Red"), a quantity selector and a remove button. A box for a discount code. A clear total that lists subtotal, discount, shipping and tax separately.
 
 Checkout — a guided, friendly flow, not a bare form. Country and state/region are dropdowns filled from the store's data. When the order ships, shipping options appear as selectable choices with their prices. Payment methods appear as clear options — exactly the ones this store offers, looking professional. The shopper only types their email and street address; everything else is picked from options. Validation problems show as friendly messages next to the field that needs fixing.
 
@@ -37,10 +37,10 @@ Make it responsive, mobile-friendly, accessible and clean. Remove any sections t
 
 Apply after the master prompt, one at a time.
 
-**Colour swatches**
+**Color swatches**
 
 ```text
-On product pages, render the colour option as clickable swatches instead of a dropdown. Use the option values from the API; highlight the selected swatch and update the gallery to the matching variant's images.
+On product pages, render the color option as clickable swatches instead of a dropdown. Use the option values from the API; highlight the selected swatch and update the gallery to the matching variant's images.
 ```
 
 **Category navigation**
@@ -58,7 +58,7 @@ Preload every variant image and gallery image on the product page in the backgro
 **Stock badges**
 
 ```text
-Show an "Out of stock" badge on unavailable variants and disable adding them to the cart; when a variant tracks inventory and has fewer than 5 left, show a "Only N left" hint using the stock quantity from the API.
+Show an "Out of stock" badge on unavailable variants and disable adding them to the cart; when a variant tracks inventory and has fewer than 5 left, show an "Only N left" hint using the stock quantity from the API.
 ```
 
 **Quantity limits**

@@ -184,13 +184,13 @@ GET /cart/{cart}/payment-methods
 } ] }
 ```
 
-- `type` — the **gateway**, not a customer-facing choice: `dummy`, `stripe`, `test-stripe`, `paypal`, `test-paypal`, `offline`. **Never render `type` as the payment option** (a radio labelled "Stripe" is wrong — the shopper picks Card / Klarna / Apple Pay, not "Stripe").
+- `type` — the **gateway**, not a customer-facing choice: `dummy`, `stripe`, `test-stripe`, `paypal`, `test-paypal`, `offline`. **Never render `type` as the payment option** (a radio labeled "Stripe" is wrong — the shopper picks Card / Klarna / Apple Pay, not "Stripe").
 - `payload` — self-describing requirements: a map of Place-Order body field (dotted path) → validation rules (strings only). `null` for non-headless stores; empty object = no extra fields beyond the base body. For stripe this is just `{ "stripe_payment_method": ["required"] }` — one token covers every sub-method.
 - `data` — **the source of the payment options the customer actually sees.**
 
 ### Rendering the payment options
 
-**A customer picks a payment METHOD (Card, Klarna, Apple Pay, PayPal, a bank transfer) — never a gateway.** The API groups methods under gateways (`stripe` has a `data.methods` map, `paypal` another, `offline` another, `dummy` is a test card form), so a single radio labelled with the gateway `type` ("Stripe", "PayPal") is wrong.
+**A customer picks a payment METHOD (Card, Klarna, Apple Pay, PayPal, a bank transfer) — never a gateway.** The API groups methods under gateways (`stripe` has a `data.methods` map, `paypal` another, `offline` another, `dummy` is a test card form), so a single radio labeled with the gateway `type` ("Stripe", "PayPal") is wrong.
 
 The SDK flattens all of this for you — `checkout.paymentOptions()` returns one entry per customer-facing method across every gateway, each tagged with a `kind` telling you how to complete it:
 
@@ -327,7 +327,7 @@ The response carries the updated cart in `data`, plus two top-level keys: `payme
 
 - `success` — order placed; show the top-level `order_name`
 - `redirect` — send the customer to `payment.redirect_url` (PayPal, 3DS approval)
-- `cancelled` — the customer cancelled at the gateway; show `payment.message`
+- `cancelled` — the customer canceled at the gateway; show `payment.message`
 - `error` — payment failed; show `payment.message`
 
 After `success`, discard the stored cart guid — the cart is finalized and must not receive further requests.

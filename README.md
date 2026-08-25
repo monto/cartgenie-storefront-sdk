@@ -146,7 +146,7 @@ const visibleOptions = await probeWalletSupport(stripe!, options);
 
 `probeWalletSupport()` runs ONE `canMakePayment()` for all wallets with fixed arguments (`total: { label: 'Detect', amount: 1 }`, country from the API force-uppercased — a lowercase country makes `paymentRequest()` throw, and a swallowed throw silently hides every wallet), applies `disableWallets: ['link']` when the store disables Link or serves it inline in the Card Element, and filters by each option's `wallet` capability key. Non-wallet options pass through untouched; on `null` capability or a probe error the wallet options are dropped, never thrown.
 
-**Framework footgun (React/Vue effects):** the probe result is cached per Stripe instance, so calling `probeWalletSupport()` on every re-render is safe — it never re-probes. Do NOT hand-roll this with a cancel-on-cleanup effect: cancelling the in-flight probe while a run-once guard is already set hides wallets for the rest of the session. And never probe with the live cart total — Chrome rate-limits `canMakePayment` per origin when the arguments vary, silently answering `false` for ~30 minutes on your domain only.
+**Framework footgun (React/Vue effects):** the probe result is cached per Stripe instance, so calling `probeWalletSupport()` on every re-render is safe — it never re-probes. Do NOT hand-roll this with a cancel-on-cleanup effect: canceling the in-flight probe while a run-once guard is already set hides wallets for the rest of the session. And never probe with the live cart total — Chrome rate-limits `canMakePayment` per origin when the arguments vary, silently answering `false` for ~30 minutes on your domain only.
 
 **Link masks wallets inside a Payment Request.** Within one `paymentRequest`, Link takes priority: when it is available, `canMakePayment()` answers `{ link: true, googlePay: false, applePay: false }` — Google/Apple Pay look unavailable even though they are. That is why `disableWallets: ['link']` must be applied both in the probe AND in the request you `show()` whenever Link lives in the Card Element (`option.stripe.linkInCardElement`) or is switched off (`option.stripe.disableLink`) — the helpers do this automatically. `disableWallets` is a `paymentRequest`-only option: it never touches the inline Link widget in the Card Element, so Link-in-card and Google/Apple Pay coexist because they live in DIFFERENT elements, not inside one Payment Request.
 
@@ -224,7 +224,7 @@ const result = await cartgenie.checkout.placeOrder(
     ...order,
     payment_method: klarna.gateway,
     stripe_payment_method: klarna.method!,
-    // Where the shopper lands after approving (or cancelling) on the provider's
+    // Where the shopper lands after approving (or canceling) on the provider's
     // site. Must be a URL on your store's registered site host.
     return_url: `${location.origin}/checkout/complete`,
   },
@@ -247,7 +247,7 @@ if (checkoutReturn?.status === 'success') {
   cartgenie.cart.reset(); // the cart is finalized — drop the stored guid
   // show the order confirmation screen
 } else if (checkoutReturn?.status === 'cancel') {
-  // show "payment cancelled" and offer to retry — the cart is still open
+  // show "payment canceled" and offer to retry — the cart is still open
 }
 ```
 
