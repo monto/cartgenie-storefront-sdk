@@ -12,9 +12,11 @@ Setup: install the SDK with `npm install github:monto/cartgenie-storefront-sdk` 
 - https://raw.githubusercontent.com/monto/cartgenie-storefront-sdk/main/README.md
 - https://raw.githubusercontent.com/monto/cartgenie-storefront-sdk/main/docs/storefront-api.md
 
-My store's config: apiKey "<PUBLIC_API_KEY>".
+My store's config: apiKey "<PUBLIC_API_KEY>". Keep the key in an environment variable (e.g. VITE_CARTGENIE_API_KEY in .env, with .env gitignored) rather than hardcoding it in source — it is a publishable storefront key, but config belongs in the environment.
 
 The SDK and its docs are the single source of truth for all commerce behavior — prices, totals, taxes, country and region lists, shipping options, payment methods and their forms. Never invent, hardcode or calculate any of that yourself; when in doubt, the docs win.
+
+If any SDK call fails or returns unexpected data, render the actual error state. Never fall back to placeholder products, hardcoded country or region lists, or client-side price/tax math. If the docs don't specify something, stop and say so instead of inventing it.
 
 What the store should be:
 
@@ -64,3 +66,23 @@ Show an "Out of stock" badge on unavailable variants and disable adding them to 
 ```text
 Clamp the cart quantity selector to the variant's available stock when it tracks inventory; show a friendly message when the shopper hits the limit.
 ```
+
+## Evaluation run (internal)
+
+For comparing builders or prototypes side by side — not for merchant builds. Append to the master prompt:
+
+```text
+This is an evaluation build. Additional constraints:
+
+Use exactly this stack: <FRAMEWORK + VERSION>. Do not pick your own.
+
+Install the SDK pinned to a commit so runs are comparable: npm install github:monto/cartgenie-storefront-sdk#<COMMIT_SHA>.
+
+Produce INTEGRATION-NOTES.md recording every point where the docs were ambiguous, incomplete, or contradicted actual API behavior; every workaround you had to invent; and every TypeScript type that was missing or wrong.
+
+Definition of done: typecheck and production build pass, and one end-to-end test order is placed with the documented test card — paste the order number into INTEGRATION-NOTES.md. Also exercise and note the behavior of: an out-of-stock variant, an invalid discount code, an address that returns no shipping options, and a declined card.
+```
+
+## Claude Code / Cursor builds
+
+For agentic-CLI builds, put the docs URLs, the no-mock rule and the acceptance criteria into the repo's `CLAUDE.md` (or the tool's equivalent context file) instead of relying on the prompt alone — the agent re-reads it every session, so the constraints survive compaction and follow-up turns.

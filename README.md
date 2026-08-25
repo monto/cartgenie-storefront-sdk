@@ -12,6 +12,12 @@ The canonical API contract lives in this repository at [`docs/storefront-api.md`
 npm install @cartgenie/storefront
 ```
 
+## The API key is publishable
+
+The storefront `apiKey` is browser-safe by design: it is scoped to storefront operations only (catalog reads, cart mutations, checkout), and shipping it in a client bundle is the intended deployment. Order management, inventory, webhooks and every other privileged operation live on separate APIs with separate credentials that must never appear client-side. Keep the key in an environment variable (`.env`, gitignored) so repositories and templates stay clean — that is hygiene, not secrecy.
+
+Card data never reaches the CartGenie API raw: real gateways tokenize in the browser (Stripe methods send only the Stripe Elements `pm_…` token). The only direct card form is the `dummy` TEST gateway, which accepts test cards only.
+
 ## Quickstart
 
 ```ts

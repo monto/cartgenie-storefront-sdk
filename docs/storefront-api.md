@@ -14,6 +14,10 @@ Applies to headless stores (`integration_mode = headless`, `headless_store` feat
 
 The public API key is a store-scoped token shown on the headless onboarding success screen and in the dashboard under Settings → Storefront API, where admins can also copy it or rotate it (rotation invalidates the old key immediately — the storefront must be updated with the new one). It identifies the store; all endpoints operate on that store's data only.
 
+The key is **publishable** — shipping it in a browser bundle is the intended deployment. It is scoped to storefront operations only (catalog reads, cart mutations, checkout); order management, inventory, webhooks and every other privileged operation live on separate APIs with separate credentials that must never appear client-side. Keep the key in an environment variable so repositories and templates stay clean — that is hygiene, not secrecy.
+
+Card data is tokenized in the browser for real gateways: Stripe methods send only the `pm_…` token produced by Stripe Elements — raw card numbers never reach the CartGenie API. The only direct card form is the `dummy` TEST gateway, which accepts test cards only.
+
 ## Conventions
 
 - Every response wraps the result in `{ "data": ... }`. Paginated collections add `links` and `meta`.
@@ -329,6 +333,8 @@ The response carries the updated cart in `data`, plus two top-level keys: `payme
 After `success`, discard the stored cart guid — the cart is finalized and must not receive further requests.
 
 `GET /order/{order}` returns an order by id (for confirmation deep-links or webhook-driven flows).
+
+Headless orders skip address validation entirely: the shipping address is stored exactly as the shopper entered it, and no "Validated address" badge appears on orders or emails.
 
 ## Going live with real payments
 
