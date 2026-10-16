@@ -225,7 +225,8 @@ const result = await cartgenie.checkout.placeOrder(
     payment_method: klarna.gateway,
     stripe_payment_method: klarna.method!,
     // Where the shopper lands after approving (or canceling) on the provider's
-    // site. Must be a URL on your store's registered site host.
+    // site. Must be a URL on your store's registered site host (dashboard →
+    // Settings → Storefront → Site URL); any other host falls back to the site URL.
     return_url: `${location.origin}/checkout/complete`,
   },
   { idempotencyKey: crypto.randomUUID() },

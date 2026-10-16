@@ -95,6 +95,22 @@ Headless stores only (404 otherwise). Published categories, cursor-paginated, ca
   "meta_description": "...", "published_at": "2026-07-01T00:00:00+00:00", "main_image_url": "..." }
 ```
 
+## Page URLs CartGenie links to
+
+CartGenie builds links into your site for product feeds (Google, OpenAI), order emails, PayPal order details, webhooks and the dashboard. It builds them from the site settings in the dashboard (Settings → Storefront), so your routes must match those settings:
+
+| Page | URL | Example with the default paths |
+|---|---|---|
+| Product | `<site URL>/<product path>/<product slug>` | `https://mystore.com/products/t-shirt` |
+| Category | `<site URL>/<category path>/<category slug>` | `https://mystore.com/categories/apparel` |
+
+The site URL and both paths can be changed in the dashboard at any time; change your routes and the settings together. A path can have several segments (`shop/products`).
+
+Product pages must also handle two query parameters:
+
+- `?variant=<variant slug>` — preselect the variant whose `slug` matches (feed and email links point at a specific variant this way). Ignore an unknown slug and fall back to the default selection.
+- `?addtocart=<product slug>:<quantity>&opencart=true` — used by upsell links in order emails for single-variant products. Fetch the product by slug, add its variant to the cart with the given quantity (default `1` when the `:<quantity>` part is missing), open the cart when `opencart=true`, then remove both parameters from the address bar (`history.replaceState`) so a reload doesn't add the item again.
+
 ## Cart
 
 Append `?checkout=1` to cart reads and mutations (cart CRUD, items, coupon, email, address) — without it the response omits the `checkout` block (totals, discounts, tax, payment methods). The payment-methods and Place-Order endpoints do not take this parameter.

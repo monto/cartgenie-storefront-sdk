@@ -20,7 +20,7 @@ If any SDK call fails or returns unexpected data, render the actual error state.
 
 What the store should be:
 
-Catalog — a tidy grid of products with photos and prices, linking to a product detail page for each product.
+Catalog — a tidy grid of products with photos and prices, linking to a product detail page for each product. Serve product pages at /products/<product slug> and category pages (if any) at /categories/<category slug>, and handle the ?variant= and ?addtocart= parameters on product pages exactly as the docs' "Page URLs CartGenie links to" section describes — CartGenie's feeds and emails link to these URLs.
 
 Product detail page — the product's name, rich description, photo gallery, SKU, price, and stock/availability state. If the product comes in variations (size, color, etc.), the shopper picks each option; the price, photo, SKU, dimensions and availability update to match the selected variant, and the gallery shows the selected variant's images (never a flat dump of every variant's images). Show physical dimensions and weight with their units when present. Preload gallery and variant images in the background so switching options is instant. Put the product's meta description into the page's meta description tag.
 
