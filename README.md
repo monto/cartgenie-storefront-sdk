@@ -93,7 +93,7 @@ switch (result.payment?.state) {
     location.href = result.payment.redirect_url!;
     break;
   default:
-    // 'error' / 'cancelled' — show result.payment?.message
+    // 'none' (declined) / 'error' / 'cancelled' — show result.payment?.message, the cart stays open
     break;
 }
 ```
@@ -306,7 +306,9 @@ const order = await cartgenie.orders.get(orderId); // id from a confirmation dee
 
 ## Stale carts
 
-A stored cart guid can stop resolving — a completed checkout finalizes it, or it expires. Any cart call that gets a `404` for the stored guid clears it automatically, and the next `cart.addItem(...)` transparently starts a fresh cart, so a shopper is never stuck with a "cart not found" after ordering. `cart.get()` / `updateItem` / coupon calls still surface the `404` as a `CartGenieError` (the stored guid is already cleared) — treat it as "the cart is gone, show an empty cart".
+A stored cart guid can stop resolving — a completed checkout finalizes it, or it expires. Any cart call that gets a `404` for the stored guid clears it automatically, and the next `cart.addItem(...)` transparently starts a fresh cart, so a shopper is never stuck with a "cart not found" after ordering. `cart.get()` / `updateItem` / `removeItem` / `removeCoupon` still surface the `404` as a `CartGenieError` (the stored guid is already cleared) — treat it as "the cart is gone, show an empty cart".
+
+`cart.applyCoupon()` is the exception: the API answers an unknown code with a 404 too, so the SDK re-reads the cart first. An unknown code rejects with a 422 `CartGenieError` keyed `coupon` (`e.fieldErrors().coupon`) and the cart is kept; only a cart that is really gone is forgotten.
 
 ## SSR / custom persistence
 

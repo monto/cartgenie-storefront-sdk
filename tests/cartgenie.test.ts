@@ -171,8 +171,16 @@ describe('CartGenie SDK', () => {
 
     expect(call(fetchMock, 0)[0]).toBe(`${BASE}/cart/item?checkout=1`);
     expect(JSON.parse(call(fetchMock, 0)[1].body)).toEqual({
-      items: [{ product_variant_id: 11 }, { product_variant_id: 12, quantity: 2 }],
+      items: [{ product_variant_id: 11, quantity: 1 }, { product_variant_id: 12, quantity: 2 }],
     });
+  });
+
+  it('sends quantity 1 when addItem is called without one', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { guid: 'CART1', items: [] } }, 201));
+
+    await sdk.cart.addItem({ product_variant_id: 11 });
+
+    expect(JSON.parse(call(fetchMock, 0)[1].body)).toEqual({ product_variant_id: 11, quantity: 1 });
   });
 
   it('appends checkout=1 to cart mutations', async () => {
@@ -891,6 +899,34 @@ describe('stale cart recovery', () => {
     expect(sdk.cart.guid).toBeNull();
   });
 
+  it('keeps the cart when an unknown coupon code answers 404', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: { guid: 'CART1', items: [] } }, 201))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Invalid coupon code.' }, 404))
+      .mockResolvedValueOnce(jsonResponse({ data: { guid: 'CART1', items: [] } }));
+
+    await sdk.cart.addItem({ product_variant_id: 11 });
+    const failure = await sdk.cart.applyCoupon('NOPE').catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(CartGenieError);
+    expect((failure as CartGenieError).isValidationError).toBe(true);
+    expect((failure as CartGenieError).errors).toEqual({ coupon: ['Invalid coupon code.'] });
+    expect(call(fetchMock, 2)[0]).toBe(`${BASE}/cart/CART1`);
+    expect(sdk.cart.guid).toBe('CART1');
+  });
+
+  it('forgets the cart when the coupon 404 comes from a cart that is gone', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: { guid: 'OLD', items: [] } }, 201))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Resource not found' }, 404))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Resource not found' }, 404));
+
+    await sdk.cart.addItem({ product_variant_id: 11 });
+
+    await expect(sdk.cart.applyCoupon('SAVE10')).rejects.toBeInstanceOf(CartGenieError);
+    expect(sdk.cart.guid).toBeNull();
+  });
+
   it('propagates disableLink from the stripe gateway to wallet options', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ data: { guid: 'CART1', items: [] } }, 201))
@@ -1155,6 +1191,29 @@ describe('payWithWallet', () => {
 
     await expect(settled).rejects.toThrow('validation');
     expect(complete).toHaveBeenCalledWith('fail');
+  });
+
+  it.each(['none', 'error', 'cancelled'])('completes the sheet with fail when the payment comes back %s', async (state) => {
+    const { stripe, show, handlers } = fakeWalletStripe({ googlePay: true });
+    const placeOrder = vi.fn(async () => ({ payment: { state, message: 'Payment failed, please try again.' } }) as PlaceOrderResult);
+
+    const settled = payWithWallet(stripe, walletOption(), order, placeOrder);
+
+    await vi.waitFor(() => expect(show).toHaveBeenCalledOnce());
+    const complete = vi.fn();
+    handlers['paymentmethod']!({ paymentMethod: { id: 'pm_1' }, complete });
+    const result = await settled;
+
+    expect(complete).toHaveBeenCalledWith('fail');
+    expect(result.payment?.state).toBe(state);
+  });
+
+  it('throws before opening the sheet when the option has no wallet total', async () => {
+    const { stripe, paymentRequest } = fakeWalletStripe({ googlePay: true });
+    const option = walletOption({ data: { label: 'Google Pay', options: { country: 'US', currency: 'usd' } } });
+
+    await expect(payWithWallet(stripe, option, order, vi.fn())).rejects.toThrow('no wallet total');
+    expect(paymentRequest).not.toHaveBeenCalled();
   });
 
   it('rejects when the shopper closes the sheet', async () => {

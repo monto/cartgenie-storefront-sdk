@@ -61,7 +61,13 @@ export { parseCheckoutReturn } from './checkout-return';
 export type { CheckoutReturn } from './checkout-return';
 export { toPaymentOptions } from './payment-options';
 export { payWithWallet, probeWalletSupport } from './wallets';
-export type { StripePaymentRequestLike, StripeWalletClient, WalletCapability } from './wallets';
+export type {
+  StripePaymentRequestLike,
+  StripeWalletClient,
+  WalletCapability,
+  WalletPaymentMethodEvent,
+  WalletPaymentRequestOptions,
+} from './wallets';
 export type { CallOptions } from './http';
 export { defaultStorage } from './storage';
 export type { CartStorage } from './storage';

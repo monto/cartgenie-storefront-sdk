@@ -11,6 +11,15 @@ export interface ProductOption {
   [key: string]: unknown;
 }
 
+/** How a subscription variant bills: `price` now, then every `interval_count` × `interval`. */
+export interface SubscriptionTerms {
+  interval: 'day' | 'week' | 'month' | 'year' | null;
+  interval_count: number;
+  /** `fixed_term` stops after `ends_after` payments; `renews_until_canceled` runs until the shopper cancels. */
+  term: 'renews_until_canceled' | 'fixed_term';
+  ends_after: number | null;
+}
+
 export interface ProductVariant {
   id: number;
   slug: string;
@@ -33,6 +42,8 @@ export interface ProductVariant {
   /** Store-configured measurement units for labeling, passed through unchanged. */
   dimension_unit?: string;
   weight_unit?: string;
+  /** Billing terms of a subscription variant; `null` for a one-time purchase. Show them next to the price. */
+  subscription?: SubscriptionTerms | null;
   [key: string]: unknown;
 }
 
@@ -86,6 +97,8 @@ export interface CartItem {
   sku?: string | null;
   stock?: number | null;
   availability?: string;
+  /** Billing terms of a subscription item; `null` for a one-time purchase. */
+  subscription?: SubscriptionTerms | null;
   [key: string]: unknown;
 }
 

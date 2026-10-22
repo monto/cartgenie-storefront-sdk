@@ -34,14 +34,14 @@ export class CartResource {
     this.storage.clear();
   }
 
-  /** Adds an item, creating the cart on first use (or a fresh one if the stored guid is stale). */
+  /** Adds an item (quantity 1 unless given), creating the cart on first use (or a fresh one if the stored guid is stale). */
   addItem(input: AddItemInput): Promise<Cart> {
-    return this.enqueue(() => this.postItems(input));
+    return this.enqueue(() => this.postItems(withQuantity(input)));
   }
 
-  /** Adds several items in one request (`{ items: [...] }` form). */
+  /** Adds several items in one request (`{ items: [...] }` form); each defaults to quantity 1. */
   addItems(items: AddItemInput[]): Promise<Cart> {
-    return this.enqueue(() => this.postItems({ items }));
+    return this.enqueue(() => this.postItems({ items: items.map(withQuantity) }));
   }
 
   async get(options: CallOptions = {}): Promise<Cart> {
@@ -82,19 +82,36 @@ export class CartResource {
     );
   }
 
-  /** Set the customer email before applying a coupon — some discounts resolve against the customer. */
+  /**
+   * Set the customer email before applying a coupon — some discounts resolve against the customer.
+   *
+   * An unknown code rejects with a 422 `CartGenieError` keyed `coupon` (show it next to the code
+   * field); the cart stays as it was.
+   */
   applyCoupon(coupon: string): Promise<Cart> {
-    return this.enqueue(() =>
-      this.forgetStoredCartOn404(async () => {
-        const endpoint = `/cart/${this.encodedGuid()}/coupon`;
+    return this.enqueue(async () => {
+      const guid = this.encodedGuid();
+      const endpoint = `/cart/${guid}/coupon`;
+
+      try {
         const { status, body } = await this.http.requestRaw('POST', endpoint, {
           query: { checkout: 1 },
           body: { coupon },
         });
 
         return cartOf(body, endpoint, status);
-      }),
-    );
+      } catch (error) {
+        // The API answers an unknown code with the same 404 status as a missing
+        // cart, so the cart is re-read before anything is forgotten.
+        if (!(error instanceof CartGenieError) || error.status !== 404) {
+          throw error;
+        }
+
+        await this.forgetStoredCartOn404(() => this.http.requestRaw('GET', `/cart/${guid}`));
+
+        throw new CartGenieError(error.message, 422, { coupon: [error.message] });
+      }
+    });
   }
 
   removeCoupon(): Promise<Cart> {
@@ -180,4 +197,8 @@ export class CartResource {
 
     return result;
   }
+}
+
+function withQuantity(input: AddItemInput): AddItemInput {
+  return { ...input, quantity: input.quantity ?? 1 };
 }

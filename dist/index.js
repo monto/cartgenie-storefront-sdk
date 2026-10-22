@@ -265,13 +265,13 @@ var CartResource = class {
   reset() {
     this.storage.clear();
   }
-  /** Adds an item, creating the cart on first use (or a fresh one if the stored guid is stale). */
+  /** Adds an item (quantity 1 unless given), creating the cart on first use (or a fresh one if the stored guid is stale). */
   addItem(input) {
-    return this.enqueue(() => this.postItems(input));
+    return this.enqueue(() => this.postItems(withQuantity(input)));
   }
-  /** Adds several items in one request (`{ items: [...] }` form). */
+  /** Adds several items in one request (`{ items: [...] }` form); each defaults to quantity 1. */
   addItems(items) {
-    return this.enqueue(() => this.postItems({ items }));
+    return this.enqueue(() => this.postItems({ items: items.map(withQuantity) }));
   }
   async get(options = {}) {
     const endpoint = `/cart/${this.encodedGuid()}`;
@@ -304,18 +304,30 @@ var CartResource = class {
       })
     );
   }
-  /** Set the customer email before applying a coupon — some discounts resolve against the customer. */
+  /**
+   * Set the customer email before applying a coupon — some discounts resolve against the customer.
+   *
+   * An unknown code rejects with a 422 `CartGenieError` keyed `coupon` (show it next to the code
+   * field); the cart stays as it was.
+   */
   applyCoupon(coupon) {
-    return this.enqueue(
-      () => this.forgetStoredCartOn404(async () => {
-        const endpoint = `/cart/${this.encodedGuid()}/coupon`;
+    return this.enqueue(async () => {
+      const guid = this.encodedGuid();
+      const endpoint = `/cart/${guid}/coupon`;
+      try {
         const { status, body } = await this.http.requestRaw("POST", endpoint, {
           query: { checkout: 1 },
           body: { coupon }
         });
         return cartOf(body, endpoint, status);
-      })
-    );
+      } catch (error) {
+        if (!(error instanceof CartGenieError) || error.status !== 404) {
+          throw error;
+        }
+        await this.forgetStoredCartOn404(() => this.http.requestRaw("GET", `/cart/${guid}`));
+        throw new CartGenieError(error.message, 422, { coupon: [error.message] });
+      }
+    });
   }
   removeCoupon() {
     return this.enqueue(
@@ -383,6 +395,9 @@ var CartResource = class {
     return result;
   }
 };
+function withQuantity(input) {
+  return { ...input, quantity: input.quantity ?? 1 };
+}
 
 // src/resources/categories.ts
 var Categories = class {
@@ -618,6 +633,22 @@ var Orders = class {
 };
 
 // src/resources/products.ts
+var MEASUREMENT_FIELDS = ["height", "length", "width", "weight"];
+function withDisplayMeasurements(product) {
+  for (const variant of product.variants ?? []) {
+    for (const field of MEASUREMENT_FIELDS) {
+      const raw = variant[field];
+      if (typeof raw === "number") {
+        variant[field] = Math.round(raw) / 100;
+      }
+    }
+  }
+  return product;
+}
+function withDisplayMeasurementsPage(page) {
+  page.data.forEach(withDisplayMeasurements);
+  return page;
+}
 var Products = class {
   constructor(http) {
     this.http = http;
@@ -628,7 +659,7 @@ var Products = class {
       query: { limit: options.limit, cursor: options.cursor },
       signal: options.signal
     });
-    return productsOf(body, "/products", status);
+    return withDisplayMeasurementsPage(productsOf(body, "/products", status));
   }
   /** Fetch specific products by slug (exempt from the catalog rate limit). */
   async bySlugs(slugs, options = {}) {
@@ -636,12 +667,12 @@ var Products = class {
       query: { slugs: slugs.join(",") },
       signal: options.signal
     });
-    return productsOf(body, "/products", status);
+    return withDisplayMeasurementsPage(productsOf(body, "/products", status));
   }
   async get(slug, options = {}) {
     const endpoint = `/product/${encodeURIComponent(slug)}`;
     const { status, body } = await this.http.requestRaw("GET", endpoint, { signal: options.signal });
-    return productOf(body, endpoint, status);
+    return withDisplayMeasurements(productOf(body, endpoint, status));
   }
 };
 
@@ -762,33 +793,41 @@ async function payWithWallet(stripe, option, order, placeOrder) {
       0
     );
   }
-  const walletOptions = option.data?.options ?? {};
-  const args = walletRequestArgs(option);
+  const walletOptions = option.data?.options;
+  if (!walletOptions?.total) {
+    throw new CartGenieError(
+      `The ${option.id} option carries no wallet total \u2014 re-read paymentOptions() for the current cart.`,
+      0
+    );
+  }
   const request = stripe.paymentRequest({
     ...walletOptions,
-    ...args,
+    ...walletRequestArgs(option),
     ...disabledWallets(option)
   });
   const settled = new Promise((resolve, reject) => {
-    request.on("paymentmethod", (async (ev) => {
-      try {
-        const result = await placeOrder({
-          ...order,
-          customer_email: order.customer_email || ev.payerEmail || "",
-          customer_name: order.customer_name || ev.payerName || void 0,
-          payment_method: option.gateway,
-          stripe_payment_method: ev.paymentMethod.id
-        });
-        ev.complete(result.payment?.state === "error" ? "fail" : "success");
-        resolve(result);
-      } catch (error) {
-        ev.complete("fail");
-        reject(error);
-      }
-    }));
-    request.on("cancel", (() => {
+    request.on("paymentmethod", (ev) => {
+      void (async () => {
+        try {
+          const result = await placeOrder({
+            ...order,
+            customer_email: order.customer_email || ev.payerEmail || "",
+            customer_name: order.customer_name || ev.payerName || void 0,
+            payment_method: option.gateway,
+            stripe_payment_method: ev.paymentMethod.id
+          });
+          const paid = result.payment?.state === "success" || result.payment?.state === "redirect";
+          ev.complete(paid ? "success" : "fail");
+          resolve(result);
+        } catch (error) {
+          ev.complete("fail");
+          reject(error);
+        }
+      })();
+    });
+    request.on("cancel", () => {
       reject(new CartGenieError("The shopper closed the wallet sheet without paying.", 0));
-    }));
+    });
   });
   const capability = await request.canMakePayment();
   if (!capability || capability[option.wallet] !== true) {

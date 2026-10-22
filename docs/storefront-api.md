@@ -52,7 +52,8 @@ Each product:
                   "out_of_stock": false, "stock_quantity": 5, "track_inventory": true,
                   "shippable": true, "image_url": "...", "extra_images": ["..."],
                   "height": 2050, "length": 1000, "width": 500, "weight": 12345,
-                  "dimension_unit": "cm", "weight_unit": "kg" } ],
+                  "dimension_unit": "cm", "weight_unit": "kg",
+                  "subscription": null } ],
   "kind": "single"
 }
 ```
@@ -65,6 +66,18 @@ Notes:
 - The listing intentionally omits `description` to keep catalog pages light. Fetch the single product (`GET /product/{slug}`) on the product detail page — that response includes `description`: store-authored HTML, render it in a rich-text block (sanitized). `meta_description` belongs in the page's meta description tag. Both can be `null` when the merchant hasn't filled them in.
 - `gallery` (product level) and each variant's `extra_images` are additional image URL lists. On a product page show the selected variant's image(s), not a flat dump of every variant's images; preload the gallery/variant images in the background for instant option switches.
 - Variant `height` / `length` / `width` / `weight` come from the API as integer hundredths of the store's configured measurement units (`2050` = 20.5). The SDK's `products` resource converts them to decimals for you — render SDK values as-is, labeled with `dimension_unit` / `weight_unit`. When calling the API directly, divide by 100 before displaying.
+- Each variant's `subscription` says whether buying it starts a recurring charge. It is `null` for a one-time purchase and always present, never omitted. For a subscription variant:
+
+  ```json
+  "subscription": {
+    "interval": "week",
+    "interval_count": 1,
+    "term": "renews_until_canceled",
+    "ends_after": null
+  }
+  ```
+
+  The shopper is charged `price` now and again every `interval_count` × `interval` (`day`, `week`, `month` or `year`). `term` is `renews_until_canceled`, or `fixed_term` when the subscription stops after `ends_after` payments (`null` otherwise). Show the billing terms next to the price and on the add-to-cart button ("$10 / week", "$10 every 2 weeks, 6 payments") so the shopper sees the recurring charge before checkout. A variant whose renewals cost a different amount also carries `subscription_renewal_price` / `formatted_subscription_renewal_price`.
 
 ### Fetch specific products by slug
 
@@ -116,7 +129,7 @@ Product pages must also handle two query parameters:
 Append `?checkout=1` to cart reads and mutations (cart CRUD, items, coupon, email, address) — without it the response omits the `checkout` block (totals, discounts, tax, payment methods). The payment-methods and Place-Order endpoints do not take this parameter.
 
 - Create cart + add first item:
-  `POST /cart/item?checkout=1` body `{ "product_variant_id": 11, "quantity": 1 }`
+  `POST /cart/item?checkout=1` body `{ "product_variant_id": 11, "quantity": 1 }` (`quantity` is required by the API; the SDK sends `1` when you omit it)
   Returns HTTP 201 with the cart. Persist `data.guid` (e.g. localStorage) — it is the `{cart}` segment in every call below. Multi-item form: `{ "items": [{ "product_variant_id": 11, "quantity": 1 }, ...] }`.
 - Add item to existing cart: `POST /cart/{cart}/item?checkout=1` (same body)
 - Change quantity: `PUT /cart/{cart}/item/{item}?checkout=1` body `{ "quantity": 2 }`
@@ -125,7 +138,7 @@ Append `?checkout=1` to cart reads and mutations (cart CRUD, items, coupon, emai
 
 Cart response essentials:
 
-- `guid`, `items[]` — each item: `id`, `name`, `slug`, `quantity`, `image_url`, `formatted_price`, `formatted_subtotal`, `options: [{ name, value }]`, `sku`, `stock`, `availability`
+- `guid`, `items[]` — each item: `id`, `name`, `slug`, `quantity`, `image_url`, `formatted_price`, `formatted_subtotal`, `options: [{ name, value }]`, `sku`, `stock`, `availability`, `subscription` (same shape as the variant's, `null` for a one-time item — show the billing terms on the line)
 - `checkout.formatted_subtotal` / `formatted_total` / `formatted_discount_total` (signed, e.g. `-$0.20`) / `formatted_tax_total` / `formatted_shipping_total`
 - `checkout.has_shipping`, `checkout.requires_shipping`, `checkout.requires_billing`
 - `checkout.payment_methods[]` — see Payment methods below
@@ -136,6 +149,8 @@ Cart response essentials:
 
 - Apply: `POST /cart/{cart}/coupon?checkout=1` body `{ "coupon": "SAVE10" }`
 - Remove: `DELETE /cart/{cart}/coupon?checkout=1`
+
+An unknown code answers HTTP 404 with `message: "Invalid coupon code."` — the same status as a missing cart, so check the cart (`GET /cart/{cart}`) before treating it as gone. The SDK does this for you: `cart.applyCoupon()` rejects an unknown code with a 422 `CartGenieError` whose `errors` are `{ coupon: ["Invalid coupon code."] }`, and keeps the cart.
 
 Set the customer email (next section) before applying — some discounts resolve against the customer, and without an email the code can attach without applying (`coupon_code` stays `null`, reason in `checkout.discounts[].messages`).
 
@@ -343,8 +358,11 @@ The response carries the updated cart in `data`, plus two top-level keys: `payme
 
 - `success` — order placed; show the top-level `order_name`
 - `redirect` — send the customer to `payment.redirect_url` (PayPal, 3DS approval)
+- `none` — no payment went through (a declined card, including the `dummy` test decline); show `payment.message`, keep the cart open
 - `cancelled` — the customer canceled at the gateway; show `payment.message`
 - `error` — payment failed; show `payment.message`
+
+Treat every state other than `success` and `redirect` as a failed payment — the cart stays open and the shopper can try again.
 
 After `success`, discard the stored cart guid — the cart is finalized and must not receive further requests.
 

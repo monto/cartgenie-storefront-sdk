@@ -53,6 +53,14 @@ interface ProductOption {
     values: ProductOptionValue[];
     [key: string]: unknown;
 }
+/** How a subscription variant bills: `price` now, then every `interval_count` × `interval`. */
+interface SubscriptionTerms {
+    interval: 'day' | 'week' | 'month' | 'year' | null;
+    interval_count: number;
+    /** `fixed_term` stops after `ends_after` payments; `renews_until_canceled` runs until the shopper cancels. */
+    term: 'renews_until_canceled' | 'fixed_term';
+    ends_after: number | null;
+}
 interface ProductVariant {
     id: number;
     slug: string;
@@ -66,12 +74,28 @@ interface ProductVariant {
     shippable?: boolean;
     image_url?: string | null;
     image_url_large?: string | null;
+    extra_images?: string[];
+    /** The SDK converts these from the API's integer hundredths to decimals (2050 → 20.5), in the store's configured measurement units. Render as-is — never re-scale. */
+    height?: number | null;
+    length?: number | null;
+    width?: number | null;
+    weight?: number | null;
+    /** Store-configured measurement units for labeling, passed through unchanged. */
+    dimension_unit?: string;
+    weight_unit?: string;
+    /** Billing terms of a subscription variant; `null` for a one-time purchase. Show them next to the price. */
+    subscription?: SubscriptionTerms | null;
     [key: string]: unknown;
 }
 interface Product {
     id: number;
     name: string;
     slug: string;
+    /** Store-authored HTML. Present on single-product responses only — the catalog listing omits it. */
+    description?: string | null;
+    meta_description?: string | null;
+    /** Product-level gallery image URLs (variant images live on each variant). */
+    gallery?: string[];
     images?: {
         image_url?: string | null;
         image_url_large?: string | null;
@@ -122,6 +146,8 @@ interface CartItem {
     sku?: string | null;
     stock?: number | null;
     availability?: string;
+    /** Billing terms of a subscription item; `null` for a one-time purchase. */
+    subscription?: SubscriptionTerms | null;
     [key: string]: unknown;
 }
 interface CartDiscount {
@@ -384,14 +410,19 @@ declare class CartResource {
     get guid(): string | null;
     /** Forget the persisted cart. Called automatically after a successful checkout. */
     reset(): void;
-    /** Adds an item, creating the cart on first use (or a fresh one if the stored guid is stale). */
+    /** Adds an item (quantity 1 unless given), creating the cart on first use (or a fresh one if the stored guid is stale). */
     addItem(input: AddItemInput): Promise<Cart>;
-    /** Adds several items in one request (`{ items: [...] }` form). */
+    /** Adds several items in one request (`{ items: [...] }` form); each defaults to quantity 1. */
     addItems(items: AddItemInput[]): Promise<Cart>;
     get(options?: CallOptions): Promise<Cart>;
     updateItem(itemId: number, quantity: number): Promise<Cart>;
     removeItem(itemId: number): Promise<Cart>;
-    /** Set the customer email before applying a coupon — some discounts resolve against the customer. */
+    /**
+     * Set the customer email before applying a coupon — some discounts resolve against the customer.
+     *
+     * An unknown code rejects with a 422 `CartGenieError` keyed `coupon` (show it next to the code
+     * field); the cart stays as it was.
+     */
     applyCoupon(coupon: string): Promise<Cart>;
     removeCoupon(): Promise<Cart>;
     requireGuid(): string;
@@ -569,12 +600,35 @@ declare function toPaymentOptions(methods: PaymentMethod[], context?: {
  * importing `@stripe/stripe-js` itself.
  */
 interface StripeWalletClient {
-    paymentRequest(options: Record<string, unknown>): StripePaymentRequestLike;
+    paymentRequest(options: WalletPaymentRequestOptions): StripePaymentRequestLike;
+}
+/** The `paymentRequest()` options the helpers pass; a structural subset of Stripe's `PaymentRequestOptions`. */
+interface WalletPaymentRequestOptions {
+    country: string;
+    currency: string;
+    total: {
+        label: string;
+        amount: number;
+    };
+    disableWallets?: string[];
+    requestShipping?: boolean;
+    requestPayerName?: boolean;
+    requestPayerEmail?: boolean;
+    requestPayerPhone?: boolean;
 }
 interface StripePaymentRequestLike {
     canMakePayment(): Promise<Record<string, boolean> | null>;
     show(): void;
-    on(event: string, handler: (ev: never) => void): unknown;
+    on(event: 'paymentmethod', handler: (ev: WalletPaymentMethodEvent) => void): unknown;
+    on(event: 'cancel', handler: () => void): unknown;
+}
+interface WalletPaymentMethodEvent {
+    paymentMethod: {
+        id: string;
+    };
+    payerEmail?: string | null;
+    payerName?: string | null;
+    complete(status: 'success' | 'fail'): void;
 }
 /** `canMakePayment()` result keyed the way Stripe reports wallet availability. */
 type WalletCapability = Record<string, boolean> | null;
@@ -627,4 +681,4 @@ declare class CartGenie {
     constructor(config: CartGenieConfig);
 }
 
-export { type AddItemInput, type CallOptions, type Cart, type CartDiscount, CartGenie, type CartGenieConfig, CartGenieError, CartGenieNetworkError, CartGenieProtocolError, type CartItem, type CartItemOption, type CartStorage, type Category, type CheckoutAddressInput, type CheckoutBlock, type CheckoutBootstrap, type CheckoutReturn, type CountryOption, DEFAULT_BASE_URL, type ListCategoriesOptions, type ListProductsOptions, type Order, type OrderAddress, type Paginated, type PaymentFieldRules, type PaymentMethod, type PaymentOption, type PaymentOptionKind, type PlaceOrderInput, type PlaceOrderOptions, type PlaceOrderResult, type Product, type ProductOption, type ProductOptionValue, type ProductVariant, type RegionOption, type ShippingCountryOption, type ShippingMethod, type StripeGatewayData, type StripePaymentRequestLike, type StripeWalletClient, type StripeWalletOptions, type WalletCapability, defaultStorage, parseCheckoutReturn, payWithWallet, probeWalletSupport, toPaymentOptions };
+export { type AddItemInput, type CallOptions, type Cart, type CartDiscount, CartGenie, type CartGenieConfig, CartGenieError, CartGenieNetworkError, CartGenieProtocolError, type CartItem, type CartItemOption, type CartStorage, type Category, type CheckoutAddressInput, type CheckoutBlock, type CheckoutBootstrap, type CheckoutReturn, type CountryOption, DEFAULT_BASE_URL, type ListCategoriesOptions, type ListProductsOptions, type Order, type OrderAddress, type Paginated, type PaymentFieldRules, type PaymentMethod, type PaymentOption, type PaymentOptionKind, type PlaceOrderInput, type PlaceOrderOptions, type PlaceOrderResult, type Product, type ProductOption, type ProductOptionValue, type ProductVariant, type RegionOption, type ShippingCountryOption, type ShippingMethod, type StripeGatewayData, type StripePaymentRequestLike, type StripeWalletClient, type StripeWalletOptions, type SubscriptionTerms, type WalletCapability, type WalletPaymentMethodEvent, type WalletPaymentRequestOptions, defaultStorage, parseCheckoutReturn, payWithWallet, probeWalletSupport, toPaymentOptions };

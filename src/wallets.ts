@@ -7,16 +7,29 @@ import type { PaymentOption, PlaceOrderInput, PlaceOrderResult, StripeWalletOpti
  * importing `@stripe/stripe-js` itself.
  */
 export interface StripeWalletClient {
-  paymentRequest(options: Record<string, unknown>): StripePaymentRequestLike;
+  paymentRequest(options: WalletPaymentRequestOptions): StripePaymentRequestLike;
+}
+
+/** The `paymentRequest()` options the helpers pass; a structural subset of Stripe's `PaymentRequestOptions`. */
+export interface WalletPaymentRequestOptions {
+  country: string;
+  currency: string;
+  total: { label: string; amount: number };
+  disableWallets?: string[];
+  requestShipping?: boolean;
+  requestPayerName?: boolean;
+  requestPayerEmail?: boolean;
+  requestPayerPhone?: boolean;
 }
 
 export interface StripePaymentRequestLike {
   canMakePayment(): Promise<Record<string, boolean> | null>;
   show(): void;
-  on(event: string, handler: (ev: never) => void): unknown;
+  on(event: 'paymentmethod', handler: (ev: WalletPaymentMethodEvent) => void): unknown;
+  on(event: 'cancel', handler: () => void): unknown;
 }
 
-interface WalletPaymentMethodEvent {
+export interface WalletPaymentMethodEvent {
   paymentMethod: { id: string };
   payerEmail?: string | null;
   payerName?: string | null;
@@ -37,7 +50,7 @@ function walletRequestArgs(option: PaymentOption): { country: string; currency: 
   };
 }
 
-function disabledWallets(option: PaymentOption): Record<string, unknown> {
+function disabledWallets(option: PaymentOption): { disableWallets?: string[] } {
   // Link masks wallets inside a Payment Request (canMakePayment answers
   // { link: true, googlePay: false } when Link is available), so it is
   // excluded both when the store serves Link inline in the Card Element and
@@ -134,37 +147,49 @@ export async function payWithWallet(
     );
   }
 
-  const walletOptions = (option.data as { options?: StripeWalletOptions } | undefined)?.options ?? {};
-  const args = walletRequestArgs(option);
+  const walletOptions = (option.data as { options?: StripeWalletOptions } | undefined)?.options;
+
+  if (!walletOptions?.total) {
+    throw new CartGenieError(
+      `The ${option.id} option carries no wallet total — re-read paymentOptions() for the current cart.`,
+      0,
+    );
+  }
 
   const request = stripe.paymentRequest({
     ...walletOptions,
-    ...args,
+    ...walletRequestArgs(option),
     ...disabledWallets(option),
   });
 
   const settled = new Promise<PlaceOrderResult>((resolve, reject) => {
-    request.on('paymentmethod', (async (ev: WalletPaymentMethodEvent) => {
-      try {
-        const result = await placeOrder({
-          ...order,
-          customer_email: order.customer_email || ev.payerEmail || '',
-          customer_name: order.customer_name || ev.payerName || undefined,
-          payment_method: option.gateway,
-          stripe_payment_method: ev.paymentMethod.id,
-        });
+    request.on('paymentmethod', (ev) => {
+      void (async () => {
+        try {
+          const result = await placeOrder({
+            ...order,
+            customer_email: order.customer_email || ev.payerEmail || '',
+            customer_name: order.customer_name || ev.payerName || undefined,
+            payment_method: option.gateway,
+            stripe_payment_method: ev.paymentMethod.id,
+          });
 
-        ev.complete(result.payment?.state === 'error' ? 'fail' : 'success');
-        resolve(result);
-      } catch (error) {
-        ev.complete('fail');
-        reject(error);
-      }
-    }) as unknown as (ev: never) => void);
+          // A declined payment comes back as 'none' or 'error'; only an
+          // approved one ('success', or 'redirect' for 3-D Secure) may close
+          // the sheet as paid.
+          const paid = result.payment?.state === 'success' || result.payment?.state === 'redirect';
+          ev.complete(paid ? 'success' : 'fail');
+          resolve(result);
+        } catch (error) {
+          ev.complete('fail');
+          reject(error);
+        }
+      })();
+    });
 
-    request.on('cancel', (() => {
+    request.on('cancel', () => {
       reject(new CartGenieError('The shopper closed the wallet sheet without paying.', 0));
-    }) as unknown as (ev: never) => void);
+    });
   });
 
   // Stripe requires a canMakePayment() call on THIS instance before show().
