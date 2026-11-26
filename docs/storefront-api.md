@@ -226,7 +226,8 @@ GET /cart/{cart}/payment-methods
 The SDK flattens all of this for you — `checkout.paymentOptions()` returns one entry per customer-facing method across every gateway, each tagged with a `kind` telling you how to complete it:
 
 ```ts
-const options = await cartgenie.checkout.paymentOptions();
+const options = (await cartgenie.checkout.paymentOptions())
+  .filter((option) => option.method !== 'paypal_express');
 // [{ id:'stripe:card', label:'Card', gateway:'stripe', method:'card', kind:'stripe-card', stripe:{ publishableKey, accountId } },
 //  { id:'stripe:apple_pay', label:'Apple Pay', kind:'stripe-wallet', ... },
 //  { id:'stripe:klarna', label:'Klarna', kind:'stripe-redirect', ... },
@@ -241,7 +242,7 @@ Render one option per entry, using `option.label`, and always send `payment_meth
 
   **Link masks wallets in a Payment Request.** Link surfaces in two independent places: inline in the Card Element (account-level autofill widget; no code, unaffected by `disableWallets`) and inside a wallet Payment Request, where it takes priority — with Link available, `canMakePayment()` answers `{ link: true, googlePay: false }` and Google/Apple Pay never show. Rule: pass `disableWallets: ['link']` — in the probe AND in the `show()` request — whenever `option.stripe.linkInCardElement || option.stripe.disableLink`. This does not remove Link from the checkout: it stays inline in the Card Element; the coexistence comes from the two SEPARATE surfaces, not from one Payment Request. Raw-HTTP source of the two flags: the stripe gateway's `data.disable_link` (Link switched off store-wide) and the cart's `features` array containing `stripe_link_option` (Link served in the card element) — the SDK maps them to `option.stripe.disableLink` / `option.stripe.linkInCardElement` so integrators never touch the feature string.
 - `stripe-redirect` (Klarna, iDEAL, Bancontact, Afterpay/Clearpay, Twint) — **no Stripe.js involved**: send the literal method key as the token — `stripe_payment_method: option.method` (e.g. `"klarna"`). The server prepares the Stripe payment itself and responds `payment.state === 'redirect'` → send the shopper to `payment.redirect_url` to approve.
-- `paypal` — send only `payment_method: option.gateway`; handle the `redirect` state.
+- `paypal` — show the standard `paypal` method. Submit `payment_method: option.gateway` and follow the approval redirect.
 - `offline` — show `option.data.instructions_html`; add `offline_payment_method: option.method`.
 - `card-fields` — the `dummy` test gateway: a plain card form driven by `option.data` (the `payload` rules); add the `card` object.
 
@@ -276,12 +277,169 @@ Render one selectable option per `data.methods` key, using its `.label` ("Card",
 
 Every stripe sub-method ends the same way: `payment_method: "stripe"` + `stripe_payment_method: "<pm_… id>"` in the Place Order body. There is no separate `payment_method: "card"` value — `"card"` is a Stripe sub-method key, not a gateway.
 
-Two related lists (informational — the render source is `data.methods` above):
+Related cart fields (informational — the render source is `data.methods` above):
 
 - `checkout.enabled_payment_methods` — the store's configured set (e.g. may list `ideal`, `bancontact` that don't apply to a US/USD cart). Broader than `data.methods`; use `data.methods` for what to actually offer.
-- `express_payment_methods` (top level of the cart) — wallet keys for one-tap **express buttons** rendered ABOVE the form (Apple/Google Pay express), separate from the in-form payment step.
+- `express_payment_methods` (top level of the cart) lists candidates for the built-in Express Payments component. See [Express checkout](#express-checkout) for how to interpret it.
 
 For non-stripe gateways: `dummy` → a plain test-card form; `offline` → options from its `data`, send `offline_payment_method`; `paypal` → the PayPal redirect flow.
+
+## Express checkout
+
+| Shopper experience | Integration |
+| --- | --- |
+| Pay with Apple Pay or Google Pay after entering checkout details | Use `checkout.paymentOptions()`, filter with `probeWalletSupport()` and pay with `payWithWallet()`. A button above the form can open the same wallet payment once the checkout details are ready. |
+| Pay with PayPal after entering checkout details | Submit Place Order with the PayPal option's `gateway` and follow `payment.redirect_url`. |
+| Start with PayPal before the headless checkout form | Use PayPal Buttons with CartGenie's Express callbacks. See [PayPal Express in a headless storefront](#paypal-express-in-a-headless-storefront). |
+| Start with a wallet or PayPal on Webflow | Use the CartGenie Express Payments component on a Webflow checkout page or in its cart modal. The component owns the Stripe and PayPal express callbacks. [CartGenie Express Payments guide](https://help.cartgenie.com/en/articles/148-adding-express-payment-options-to-your-store) |
+
+`express_payment_methods` may contain `apple_pay`, `google_pay` and `paypal_express`, or be empty. It reflects CartGenie's eligibility for the built-in component. For headless checkout, use the available methods from `checkout.paymentOptions()` and the browser's wallet capability probe to decide what to offer. The gateway response can also list `paypal_express` as a method. For the regular headless payment form, omit that entry and show the standard `paypal` method when available. Use a separate button for the PayPal Express integration below. A headless product-page buy button can add the selected variant to a cart and take the shopper through the [checkout sequence](#checkout-sequence).
+
+### Apple Pay and Google Pay in headless checkout
+
+1. Collect the required contact and address fields and save them with `checkout.setEmail()` and `checkout.setAddress()`. For a shippable cart, call `checkout.setJurisdictions()`, get the matching rates with `checkout.shippingMethods()` and save the shopper's choice with `checkout.setShippingMethod()`.
+2. Fetch fresh payment options after those updates. Use the wallet's server-supplied amount and currency from `option.data.options`. Validate the checkout fields before opening the sheet. The Stripe PaymentMethod ID arrives after wallet confirmation.
+3. Call `payWithWallet()` in the button's click handler. It can fill an empty top-level customer name or email and pass the Stripe PaymentMethod ID to Place Order. Supply the required `billing_address`, `shipping_address` and selected `shipping_method` in the order input as applicable. The helper handles `paymentmethod` and cancellation. Setting `requestShipping: true` only asks Stripe for a shipping address. It leaves address persistence, shipping events and repricing outside the helper.
+
+Treat the wallet amount as a quote for the cart and shipping selection at the time the sheet opened. If you detect a cart, stock or coupon change while the sheet is open, mark the quote stale. Have your `payWithWallet()` callback reject a stale quote before it calls `checkout.placeOrder()`. The helper closes the sheet with a failure status. If Place Order already started, check its result before starting another attempt. Place Order checks stock server-side. If checkout reports unavailable stock, an invalid coupon or a changed total, show the error. Refresh the cart, shipping choice and payment options, then show the updated CartGenie total for the shopper to confirm.
+
+### How the Webflow Express Payments component handles shipping
+
+- On Stripe's `shippingaddresschange` event, the component sends the wallet address to CartGenie. CartGenie resolves the jurisdiction and postal code, updates the cart for the quote and returns the applicable shipping options and recalculated total. Address details can be limited until wallet confirmation. The component passes the returned options and total to `updateWith()`, using the server's amounts in minor units. The callback reports an address the store cannot ship to. [Payment Request address changes](https://www.w3.org/TR/payment-request/#shipping-address-changed-algorithm)
+- On `shippingoptionchange`, it sends the selected option ID. CartGenie checks that the option still applies, saves it and returns the new total including shipping and tax. The component updates the sheet before the shopper confirms.
+- On `paymentmethod`, it submits the full wallet address and selected shipping method with the Stripe PaymentMethod ID. The final Place Order address shape uses fields such as `country`, `region`, `line_one` and `zip`. Ordinary headless address updates use the separate [cart address shape](#checkout-sequence).
+- PayPal Express starts with a PayPal button. The component uses the Storefront API key to call `paypal-callbacks/create-order` and `paypal-callbacks/on-approve` for the active cart. Order creation requires the store's PayPal Express feature. CartGenie supplies PayPal with a signed HTTPS shipping callback that recalculates totals and returns shipping options for shippable orders. The component uses the approval payload to fill checkout details, collects any remaining required fields and completes Place Order in express mode. Headless storefronts can use the same server callbacks with their own PayPal button and review form.
+
+### PayPal Express in a headless storefront
+
+Use a dedicated PayPal button for Express. For the same active cart, CartGenie creates the PayPal order, PayPal obtains shipping options and updated amounts through CartGenie's signed HTTPS callback, and CartGenie returns the payer and delivery details after approval. Complete the purchase on the storefront with Place Order in express mode.
+
+This flow was verified in PayPal Sandbox with a shippable one-time order, including the shipping option and tax calculated for the PayPal address. With deferred authorization enabled, PayPal showed the order as approved with zero captures before the final storefront submit. Place Order completed one capture for the reviewed amount.
+
+#### Preparation
+
+- Connect PayPal to the CartGenie store and enable PayPal Express for that store. In Sandbox, use the matching PayPal Sandbox integration and buyer account.
+- Create a nonempty cart with the Storefront SDK. Use the top-level `express_payment_methods` on that cart to decide whether to mount the Express button.
+- Install `@paypal/paypal-js` in the storefront. Use the `partner_client_id` and currency returned by the PayPal entry in `checkout.paymentMethods()` to initialize PayPal Buttons. CartGenie supplies PayPal's signed shipping callback when creating the order.
+
+Keep the Express button separate from the regular payment options. The example assumes the app has already initialized `cartgenie` with its Storefront API key and base URL and added items to the cart.
+
+```html
+<div id="paypal-express"></div>
+<form id="paypal-express-review" hidden>
+  <p id="paypal-express-total"></p>
+  <label>Phone <input name="phone" type="tel" autocomplete="tel"></label>
+  <button type="submit">Complete checkout</button>
+</form>
+<p id="paypal-express-status" role="status"></p>
+```
+
+```js
+import { loadScript } from '@paypal/paypal-js';
+
+async function mountPayPalExpress({ cartgenie, apiKey, baseUrl, environment }) {
+  const { data: cart } = await cartgenie.checkout.get();
+  if (!cart.express_payment_methods?.includes('paypal_express')) return;
+
+  const gateways = await cartgenie.checkout.paymentMethods();
+  const config = gateways.find(({ type }) => type === 'paypal')?.data;
+  if (!config?.partner_client_id || !config.currency) {
+    throw new Error('PayPal gateway settings are incomplete.');
+  }
+
+  const buttonsContainer = document.querySelector('#paypal-express');
+  const review = document.querySelector('#paypal-express-review');
+  const total = document.querySelector('#paypal-express-total');
+  const status = document.querySelector('#paypal-express-status');
+  const submit = review.querySelector('button[type="submit"]');
+  const callbackBase = `${baseUrl.replace(/\/$/, '')}/cart/${encodeURIComponent(cart.guid)}/paypal-callbacks`;
+  let approval;
+  let attemptKey;
+
+  async function postPayPalCallback(action, body) {
+    const response = await fetch(`${callbackBase}/${action}`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(Object.values(data.errors ?? {})[0]?.[0] ?? data.message ?? 'PayPal callback failed.');
+    }
+    return data;
+  }
+
+  const paypal = await loadScript({
+    environment,
+    clientId: config.partner_client_id,
+    currency: config.currency.toUpperCase(),
+    intent: 'authorize',
+    commit: false,
+  });
+  if (!paypal?.Buttons) throw new Error('PayPal Buttons did not load.');
+
+  await paypal.Buttons({
+    fundingSource: paypal.FUNDING.PAYPAL,
+    async createOrder() {
+      status.textContent = '';
+      const { id } = await postPayPalCallback('create-order');
+      if (!id) throw new Error('CartGenie did not return a PayPal order ID.');
+      return id;
+    },
+    async onApprove({ orderID }) {
+      approval = await postPayPalCallback('on-approve', { orderID });
+      attemptKey = crypto.randomUUID();
+      const { totals } = approval;
+      total.textContent = `Total ${totals.formatted_total} · Shipping ${totals.formatted_shipping_total} · Tax ${totals.formatted_tax_total}`;
+      status.textContent = 'PayPal approved. Review and complete checkout.';
+      buttonsContainer.hidden = true;
+      review.hidden = false;
+    },
+    onCancel() {
+      status.textContent = 'PayPal was closed. You can try again.';
+    },
+    onError(error) {
+      status.textContent = error.message;
+    },
+  }).render(buttonsContainer);
+
+  review.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!approval || submit.disabled) return;
+    submit.disabled = true;
+
+    const { payload, paypal: approvedPayPal, totals } = approval;
+    const phone = review.elements.namedItem('phone').value.trim();
+    try {
+      const result = await cartgenie.checkout.placeOrder({
+        ...payload,
+        ...(phone ? { phone } : {}),
+        flow: 'express',
+        paypal_authorisation: approvedPayPal?.authorisation?.id ?? undefined,
+        displayed_total: totals.total,
+      }, { idempotencyKey: attemptKey });
+
+      if (result.payment?.state !== 'success') {
+        throw new Error(result.payment?.message ?? 'Checkout did not complete.');
+      }
+      review.hidden = true;
+      status.textContent = `Order placed: ${result.order_name}`;
+    } catch (error) {
+      submit.disabled = false;
+      status.textContent = error.message;
+    }
+  });
+}
+
+// Use the same apiKey and baseUrl passed to the SDK, including /api.
+await mountPayPalExpress({ cartgenie, apiKey, baseUrl, environment: 'sandbox' });
+```
+
+Keep the approved address and shipping method from the callback payload. Collect any remaining checkout fields on the storefront before final submit. When CartGenie defers authorization, the approval response can have a null `paypal.authorisation.id`. CartGenie uses its persisted PayPal order to authorize and capture during Place Order. Use the same idempotency key when retrying the same final submit after a timeout. The order is complete when Place Order reports `payment.state === 'success'`.
 
 ## Place Order
 

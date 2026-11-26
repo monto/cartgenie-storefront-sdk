@@ -114,7 +114,8 @@ Test cards for the `dummy` gateway: `4242424242424242` (approved), `131313131313
 **A shopper picks a payment method (Card, Klarna, Apple Pay, PayPal, a bank transfer), never a gateway.** `checkout.paymentOptions()` flattens every gateway into that flat list — never render the gateway `type` ("Stripe", "PayPal") as a choice:
 
 ```ts
-const options = await cartgenie.checkout.paymentOptions();
+const options = (await cartgenie.checkout.paymentOptions())
+  .filter((option) => option.method !== 'paypal_express');
 // each: { id, label, gateway, method?, kind, stripe?, data? }
 // kinds: 'stripe-card' | 'stripe-wallet' | 'stripe-redirect' | 'paypal' | 'offline' | 'card-fields'
 ```
@@ -124,7 +125,7 @@ Render one selectable option per entry using `option.label` — **except wallet 
 - `stripe-card` → Stripe Elements card; `stripe_payment_method` = the created `pm_...` id
 - `stripe-wallet` → filter through `probeWalletSupport()` first; on submit `payWithWallet()` — both helpers ship in this SDK
 - `stripe-redirect` (Klarna, iDEAL, Bancontact, …) → **no Stripe.js at all**: `stripe_payment_method: option.method` (the literal key); the response comes back `payment.state === 'redirect'` → send the shopper to `payment.redirect_url`
-- `paypal` → just `payment_method: option.gateway`; handle the `redirect` state
+- `paypal` → show the standard `paypal` method. Submit `payment_method: option.gateway` and follow the approval redirect.
 - `offline` → show `option.data.instructions_html`, send `offline_payment_method: option.method`
 - `card-fields` → the `dummy` test gateway's plain card form, send the `card` object
 
@@ -184,11 +185,10 @@ import { payWithWallet } from '@cartgenie/storefront';
 
 const walletOption = visibleOptions.find((o) => o.kind === 'stripe-wallet')!;
 
-// ⚠️ VALIDATE BEFORE THE SHEET OPENS. The sheet appears instantly, and a
-// missing required field (customer_email!) otherwise surfaces as a 422 only
-// AFTER the shopper confirms payment. The rules come from the gateway's
-// `payload` in paymentMethods():
-const missing = cartgenie.checkout.validateOrder(order, stripeGateway.payload);
+// Stripe supplies stripe_payment_method after wallet confirmation.
+const missing = cartgenie.checkout
+  .validateOrder(order, stripeGateway.payload)
+  .filter((field) => field !== 'stripe_payment_method');
 if (missing.length) return showFieldErrors(missing);
 
 const result = await payWithWallet(stripe!, walletOption, order, (input) =>
@@ -211,7 +211,11 @@ paymentRequest.show();
 
 </details>
 
-`walletOptions.requestShipping` is `false` when the checkout form already collected the address (the usual case). The `disableWallets: ['link']` exclusion follows `linkInCardElement || disableLink` (see the callout in the probe section): it unmasks Google/Apple Pay inside the Payment Request and never affects the inline Link widget in the Card Element.
+For a shippable cart, the standard Stripe wallet options set `requestShipping: false`. A digital cart can request an address for tax. Supply the required addresses in the checkout input in either case. The `disableWallets: ['link']` exclusion follows `linkInCardElement || disableLink` (see the callout in the probe section): it unmasks Google/Apple Pay inside the Payment Request and never affects the inline Link widget in the Card Element.
+
+### Express checkout
+
+In a headless storefront, wallet buttons use the checkout details you have already collected. Complete the address and shipping steps before opening Apple Pay or Google Pay with `payWithWallet()`. The helper fills missing top-level customer name and email from the wallet. Address collection, shipping selection and live totals inside the wallet sheet are part of the built-in Webflow Express Payments component. For standard headless PayPal, submit Place Order and follow the approval redirect. For PayPal Express, use a separate PayPal button with CartGenie's Express callbacks. [PayPal Express in a headless storefront](docs/storefront-api.md#paypal-express-in-a-headless-storefront)
 
 ### Redirect methods (`stripe-redirect`: Klarna, iDEAL, Bancontact, Afterpay, Twint)
 
