@@ -44,7 +44,9 @@ declare function defaultStorage(namespace?: string): CartStorage;
 
 interface ProductOptionValue {
     value: string;
-    value_slug: string;
+    slug: string;
+    /** @deprecated Use slug, the option value identifier returned by the API. */
+    value_slug?: string;
     [key: string]: unknown;
 }
 interface ProductOption {
@@ -68,6 +70,10 @@ interface ProductVariant {
     price?: number;
     formatted_price?: string;
     formatted_compare_at_price?: string;
+    is_default?: boolean;
+    /** On the default variant, maps option slugs to value slugs. An empty selection is []. */
+    selected_options?: Record<string, string> | [];
+    disabled?: boolean;
     out_of_stock?: boolean;
     stock_quantity?: number | null;
     track_inventory?: boolean;
@@ -87,15 +93,27 @@ interface ProductVariant {
     subscription?: SubscriptionTerms | null;
     [key: string]: unknown;
 }
+interface ProductCategory {
+    slug: string;
+    name: string;
+}
 interface Product {
     id: number;
     name: string;
     slug: string;
+    /** Headless catalog search only. Null until the store has configured a site URL. */
+    url?: string | null;
+    /** Published categories returned by the Headless catalog search. */
+    categories?: ProductCategory[];
     /** Store-authored HTML. Present on single-product responses only — the catalog listing omits it. */
     description?: string | null;
     meta_description?: string | null;
     /** Product-level gallery image URLs (variant images live on each variant). */
     gallery?: string[];
+    /** Default variant images when the default_variant feature is enabled. */
+    image_url?: string | null;
+    image_url_large?: string | null;
+    /** @deprecated Current responses expose image_url and image_url_large at the top level. */
     images?: {
         image_url?: string | null;
         image_url_large?: string | null;
@@ -155,8 +173,8 @@ interface CartDiscount {
     discount_type?: string;
     messages?: string[];
 }
-/** Map of Place-Order body field (dotted path) to its validation rules. Null for non-headless stores. */
-type PaymentFieldRules = Record<string, string[]> | null;
+/** Gateway-specific Place Order rules. Empty array when the gateway has none, null for non-headless stores. */
+type PaymentFieldRules = Record<string, string[]> | [] | null;
 interface PaymentMethod {
     type: string;
     payload: PaymentFieldRules;
@@ -321,11 +339,10 @@ interface PlaceOrderInput {
     offline_payment_method?: string;
     /**
      * Where the platform sends the shopper after a redirect payment method
-     * (Klarna, iDEAL, …) completes on the provider's site. Must live on the
-     * store's registered site host — other hosts are ignored and the shopper
-     * lands on the store's site root instead. The shopper arrives with
-     * `?cartgenie_return=success|cancel&cart=<guid>` appended — see
-     * `parseCheckoutReturn()`.
+     * (Klarna, iDEAL, …) completes on the provider's site. Match the scheme,
+     * hostname and port of the store's configured Site URL. The Site URL is
+     * the fallback. A configured storefront return includes cartgenie_return;
+     * see parseCheckoutReturn() for the status and optional cart GUID.
      */
     return_url?: string;
     [key: string]: unknown;
@@ -498,7 +515,7 @@ declare class Checkout {
      * evaluated client-side (conditional rules need server state); the server
      * stays the source of truth.
      */
-    validateOrder(input: PlaceOrderInput, rules: Record<string, string[]> | null | undefined): string[];
+    validateOrder(input: PlaceOrderInput, rules: PaymentFieldRules | undefined): string[];
     /**
      * Places the order. Concurrent calls on this instance are rejected while one
      * is in flight (double-click protection); cross-tab / multi-instance safety
@@ -515,9 +532,17 @@ declare class Orders {
     get(orderId: number | string, options?: CallOptions): Promise<Order>;
 }
 
+type ProductSort = 'name' | 'newest' | 'price_asc' | 'price_desc';
 interface ListProductsOptions extends CallOptions {
     limit?: number;
     cursor?: string;
+    q?: string;
+    category?: string;
+    sort?: ProductSort;
+    /** Inclusive maximum in the same integer units as ProductVariant.price. */
+    maxPrice?: number;
+    /** Existing cart GUID for jurisdiction-aware storefront pricing. */
+    cart?: string;
 }
 declare class Products {
     private readonly http;
@@ -556,7 +581,7 @@ declare class CartGenieError extends Error {
 declare class CartGenieProtocolError extends CartGenieError {
     constructor(message: string, status: number);
 }
-/** The request never reached the API (DNS, offline, CORS, abort). Inspect `cause`. */
+/** The request or response read failed at the transport layer. Inspect `cause`. */
 declare class CartGenieNetworkError extends CartGenieError {
     constructor(message: string, cause: unknown);
 }
@@ -681,4 +706,4 @@ declare class CartGenie {
     constructor(config: CartGenieConfig);
 }
 
-export { type AddItemInput, type CallOptions, type Cart, type CartDiscount, CartGenie, type CartGenieConfig, CartGenieError, CartGenieNetworkError, CartGenieProtocolError, type CartItem, type CartItemOption, type CartStorage, type Category, type CheckoutAddressInput, type CheckoutBlock, type CheckoutBootstrap, type CheckoutReturn, type CountryOption, DEFAULT_BASE_URL, type ListCategoriesOptions, type ListProductsOptions, type Order, type OrderAddress, type Paginated, type PaymentFieldRules, type PaymentMethod, type PaymentOption, type PaymentOptionKind, type PlaceOrderInput, type PlaceOrderOptions, type PlaceOrderResult, type Product, type ProductOption, type ProductOptionValue, type ProductVariant, type RegionOption, type ShippingCountryOption, type ShippingMethod, type StripeGatewayData, type StripePaymentRequestLike, type StripeWalletClient, type StripeWalletOptions, type SubscriptionTerms, type WalletCapability, type WalletPaymentMethodEvent, type WalletPaymentRequestOptions, defaultStorage, parseCheckoutReturn, payWithWallet, probeWalletSupport, toPaymentOptions };
+export { type AddItemInput, type CallOptions, type Cart, type CartDiscount, CartGenie, type CartGenieConfig, CartGenieError, CartGenieNetworkError, CartGenieProtocolError, type CartItem, type CartItemOption, type CartStorage, type Category, type CheckoutAddressInput, type CheckoutBlock, type CheckoutBootstrap, type CheckoutReturn, type CountryOption, DEFAULT_BASE_URL, type ListCategoriesOptions, type ListProductsOptions, type Order, type OrderAddress, type Paginated, type PaymentFieldRules, type PaymentMethod, type PaymentOption, type PaymentOptionKind, type PlaceOrderInput, type PlaceOrderOptions, type PlaceOrderResult, type Product, type ProductCategory, type ProductOption, type ProductOptionValue, type ProductSort, type ProductVariant, type RegionOption, type ShippingCountryOption, type ShippingMethod, type StripeGatewayData, type StripePaymentRequestLike, type StripeWalletClient, type StripeWalletOptions, type SubscriptionTerms, type WalletCapability, type WalletPaymentMethodEvent, type WalletPaymentRequestOptions, defaultStorage, parseCheckoutReturn, payWithWallet, probeWalletSupport, toPaymentOptions };

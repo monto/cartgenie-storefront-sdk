@@ -103,7 +103,7 @@ var Http = class {
         signal: options.signal
       });
     } catch (cause) {
-      throw new CartGenieNetworkError(`CartGenie request to ${url.pathname} failed before reaching the API`, cause);
+      throw new CartGenieNetworkError(`CartGenie request to ${url.pathname} failed without an HTTP response`, cause);
     }
     let text;
     try {
@@ -656,15 +656,27 @@ var Products = class {
   /** Cursor-paginated catalog listing (headless stores). Follow meta.next_cursor for more pages. */
   async list(options = {}) {
     const { status, body } = await this.http.requestRaw("GET", "/products", {
-      query: { limit: options.limit, cursor: options.cursor },
+      query: {
+        limit: options.limit,
+        cursor: options.cursor,
+        q: options.q,
+        category: options.category,
+        sort: options.sort,
+        max_price: options.maxPrice,
+        cart: options.cart
+      },
       signal: options.signal
     });
     return withDisplayMeasurementsPage(productsOf(body, "/products", status));
   }
   /** Fetch specific products by slug (exempt from the catalog rate limit). */
   async bySlugs(slugs, options = {}) {
+    const requestedSlugs = slugs.filter((slug) => slug.trim() !== "");
+    if (requestedSlugs.length === 0) {
+      return { data: [] };
+    }
     const { status, body } = await this.http.requestRaw("GET", "/products", {
-      query: { slugs: slugs.join(",") },
+      query: { slugs: requestedSlugs.join(",") },
       signal: options.signal
     });
     return withDisplayMeasurementsPage(productsOf(body, "/products", status));

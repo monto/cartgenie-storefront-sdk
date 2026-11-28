@@ -72,6 +72,6 @@ export type { CallOptions } from './http';
 export { defaultStorage } from './storage';
 export type { CartStorage } from './storage';
 export type { ListCategoriesOptions } from './resources/categories';
-export type { ListProductsOptions } from './resources/products';
+export type { ListProductsOptions, ProductSort } from './resources/products';
 export type { PlaceOrderOptions } from './resources/checkout';
 export type * from './types';

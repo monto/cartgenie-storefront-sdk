@@ -73,7 +73,7 @@ export class Http {
         signal: options.signal,
       });
     } catch (cause) {
-      throw new CartGenieNetworkError(`CartGenie request to ${url.pathname} failed before reaching the API`, cause);
+      throw new CartGenieNetworkError(`CartGenie request to ${url.pathname} failed without an HTTP response`, cause);
     }
 
     let text: string;

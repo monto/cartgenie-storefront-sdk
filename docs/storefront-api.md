@@ -20,8 +20,8 @@ Card data is tokenized in the browser for real gateways: Stripe methods send onl
 
 ## Conventions
 
-- Every response wraps the result in `{ "data": ... }`. Paginated collections add `links` and `meta`.
-- Money is server-computed and pre-formatted. Never compute totals, tax, or discounts client-side — display the server's `formatted_*` strings; raw numeric fields (`price`, `total`, …) are integer minor units (cents) for display-adjacent logic only.
+- Catalog and cart resources wrap their result in `{ "data": ... }`. Paginated collections add `links` and `meta`. Checkout and callback response shapes are shown below.
+- Display the server's `formatted_*` money strings. Catalog variant prices and the price filter use integers in the store's money scale. Legacy stores use two decimal places for catalog prices. Currency-aware stores use their currency's precision. Checkout totals use the minor units of the cart currency.
 - Validation failures return HTTP 422 with `errors` keyed by dotted paths (`card.number`, `billing_address.region`). Map each key back to its form field.
 - The catalog listing is rate-limited per IP and per store. Slug-based product fetches are exempt. On HTTP 429 back off using the `Retry-After` response header (seconds).
 
@@ -33,22 +33,44 @@ Card data is tokenized in the browser for real gateways: Stripe methods send onl
 GET /products?limit=50
 ```
 
-Headless stores only (400 without `slugs` otherwise). Cursor-paginated, ordered by name; `limit` is capped at 100. Follow `links.next` (or `meta.next_cursor`) for subsequent pages.
+Headless stores only (400 without `slugs` otherwise). Cursor-paginated, ordered by name by default; `limit` is capped at 100. Follow `links.next` (or `meta.next_cursor`) for subsequent pages.
 
-Each product:
+With the Headless catalog search flag (`headless_catalog_search`) enabled, you can combine search, category and price filters:
+
+```http
+GET /products?q=ceramic%20mug&category=drinkware&max_price=1999&sort=price_asc
+```
+
+| Parameter | Behavior |
+| --- | --- |
+| `q` | Case-insensitive substring search. Every whitespace-separated term must match the product name, slug or the SKU of the same eligible variant. Maximum 120 characters. |
+| `category` | Exact slug of a published category in this store. Unknown categories produce an empty result. |
+| `max_price` | Inclusive maximum in the same integer units as `variants[].price`. Legacy stores use two decimal places. Currency-aware stores use their currency's precision. Use `1999` for under USD $20. |
+| `sort` | `name` (default), `newest` (first published), `price_asc` or `price_desc`. Price sorts use the lowest matching eligible variant price and place products without one last. |
+
+The optional `cart` parameter applies to product reads, including slug lookups and single products, when the store uses jurisdiction-aware pricing. Pass the GUID of an open cart belonging to the store. Price comparisons use the same cart or visitor jurisdiction as the returned variant prices.
+
+A product meets the price filter if an eligible variant costs at most `max_price`. Eligible variants are enabled and, for products with option combinations, represent one of those combinations. If a match depends on the SKU, that same variant must meet the budget. Stock does not affect the price filter. The response includes all variants. Follow the generated pagination links or pass the cursor with the same filters, sorting and cart. Invalid search options return 422. With the flag off, search options are ignored and the catalog remains ordered by name.
+
+Each product includes `url` and `categories` when the search flag is on. `url` is the product page address or `null` if the store has no site URL. `categories` contains the `slug` and `name` of each published category, and is empty if there are none.
+
 
 ```json
 {
   "id": 1,
   "name": "T-Shirt",
   "slug": "t-shirt",
+  "url": "https://example.com/products/t-shirt",
+  "categories": [{ "slug": "apparel", "name": "Apparel" }],
   "meta_description": "Plain-text summary for the page meta description, or null.",
   "gallery": ["https://.../gallery-1.jpg", "https://.../gallery-2.jpg"],
-  "images": { "image_url": "...", "image_url_large": "..." },
+  "image_url": "https://example.com/red-shirt.jpg",
+  "image_url_large": "https://example.com/red-shirt-large.jpg",
   "options": [
-    { "name": "Color", "slug": "color", "values": [{ "value": "Red", "value_slug": "red" }] }
+    { "name": "Color", "slug": "color", "values": [{ "value": "Red", "slug": "red" }] }
   ],
-  "variants": [ { "id": 11, "slug": "red-l", "sku": "TS-RL", "price": 1900, "formatted_price": "$19.00",
+  "variants": [ { "id": 11, "slug": "red", "sku": "TS-R", "price": 1900, "formatted_price": "$19.00",
+                  "is_default": true, "selected_options": { "color": "red" },
                   "out_of_stock": false, "stock_quantity": 5, "track_inventory": true,
                   "shippable": true, "image_url": "...", "extra_images": ["..."],
                   "height": 2050, "length": 1000, "width": 500, "weight": 12345,
@@ -60,7 +82,8 @@ Each product:
 
 Notes:
 
-- Add to cart by the variant's `id` (`product_variant_id` below). Do not reconstruct variants from option slugs client-side; per-variant option maps are not in the payload. Render one select per `options[]` entry and track which variant the selection maps to.
+- Render one select per `options[]` entry and use the value's `slug`. For a selected combination, sort the value slugs and join them with hyphens to find the matching variant by `slug`. Send that variant's `id` as `product_variant_id`.
+- With `default_variant` active, the product includes top-level `image_url` and `image_url_large`, and variants include `is_default`. Only the default variant includes `selected_options`. This maps option slugs to value slugs or returns `[]` for an empty selection.
 - Nullable/inactive fields may be omitted from variant objects.
 - Image URLs point at CartGenie-hosted media; hotlink or proxy them as you prefer.
 - The listing intentionally omits `description` to keep catalog pages light. Fetch the single product (`GET /product/{slug}`) on the product detail page — that response includes `description`: store-authored HTML, render it in a rich-text block (sanitized). `meta_description` belongs in the page's meta description tag. Both can be `null` when the merchant hasn't filled them in.
@@ -85,7 +108,7 @@ Notes:
 GET /products?slugs=t-shirt,mug
 ```
 
-Returns up to 50 products matching the given slugs. Works for every store type and is exempt from the catalog rate limit.
+Returns up to 50 products matching the given slugs. Works for every store type and is exempt from the catalog rate limit. Search, category, price and sort parameters are ignored when fetching by slugs. Enabled Headless stores also get `url` and `categories`.
 
 ### Get one product
 
@@ -93,7 +116,7 @@ Returns up to 50 products matching the given slugs. Works for every store type a
 GET /product/{slug}
 ```
 
-Single product, same shape as the listing plus `description` (rich-text HTML or `null`) — the endpoint to use on product detail pages.
+Single product with `description` (rich-text HTML or `null`). The `url` and `categories` fields are provided by the Headless catalog listing and slug-based fetches.
 
 ### List categories
 
@@ -178,7 +201,7 @@ Returns the cart (with the `checkout` block) in `data`, plus two top-level array
 - Render the billing country select from `billing_countries` and the shipping country select from `shipping_countries` — they can differ (the store ships to a subset).
 - When a country has `jurisdiction_region_required: true`, render a region select from its `regions`; the **region `id` (e.g. `us-ca`) is the jurisdiction** used in `PUT /jurisdiction` and `GET /shipping-methods/{jurisdiction}`. When it's `false`, `regions` is empty and the **country `id` itself is the jurisdiction**.
 - `region_label` is the display name for the region field ("State", "Province", …); `postal_code_required` drives the ZIP field.
-- On the first call the API pre-selects a `shipping_jurisdiction` from the caller's IP when the cart requires shipping — treat it as a default, not a constraint.
+- For a cart that requires shipping and has no shipping jurisdiction yet, the API can preselect a jurisdiction from the caller's IP. The shopper can select a different supported address.
 
 ## Checkout sequence
 
@@ -191,7 +214,7 @@ Run in this order:
    All keys optional per store requirements; `country` is the CartGenie country id — a lowercase ISO code string like `"us"`, not a number. There is no `confirmed` key on this endpoint. The response returns the refreshed cart including recalculated `payment_methods`.
 4. Only when `checkout.has_shipping` is `true`:
    - `PUT /cart/{cart}/jurisdiction` — `{ "billing": "us-ca", "shipping": "us-ca" }` (jurisdiction = region id, or country id when the country has no regions)
-   - `GET /cart/{cart}/shipping-methods/{jurisdiction}/{postalCode?}` — list of matched methods
+   - `GET /cart/{cart}/shipping-methods/{jurisdiction}/{postalCode?}` updates the cart's shipping jurisdiction and returns matched methods in `data` and the refreshed cart in `cart`. The SDK's `shippingMethods()` returns the methods array.
    - `PATCH /cart/{cart}/shipping-method/{method}` — select one by id
 5. `GET /cart/{cart}/payment-methods`
 6. `POST /cart/{cart}/checkout` — Place Order (next section)
@@ -216,7 +239,7 @@ GET /cart/{cart}/payment-methods
 ```
 
 - `type` — the **gateway**, not a customer-facing choice: `dummy`, `stripe`, `test-stripe`, `paypal`, `test-paypal`, `offline`. **Never render `type` as the payment option** (a radio labeled "Stripe" is wrong — the shopper picks Card / Klarna / Apple Pay, not "Stripe").
-- `payload` — self-describing requirements: a map of Place-Order body field (dotted path) → validation rules (strings only). `null` for non-headless stores; empty object = no extra fields beyond the base body. For stripe this is just `{ "stripe_payment_method": ["required"] }` — one token covers every sub-method.
+- `payload` contains gateway-specific Place Order rules keyed by dotted field path. It can be `[]` when the gateway has no rules, or `null` for non-Headless stores. The common Place Order rules still apply, including `offline_payment_method` for offline payment. Stripe returns `{ "stripe_payment_method": ["required"] }`.
 - `data` — **the source of the payment options the customer actually sees.**
 
 ### Rendering the payment options
@@ -269,13 +292,11 @@ The raw list is one entry per GATEWAY. The `stripe` entry's `data.methods` holds
 } ]
 ```
 
-Render one selectable option per `data.methods` key, using its `.label` ("Card", "Klarna", "Apple Pay", "Google Pay"). A method absent from the map is not available for this cart (wrong country/currency, or off on the store) — do not show it. Then, by the picked key, all through **Stripe.js** initialized once as `Stripe(data.publishable_key, { stripeAccount: data.account_id })`:
+Render each available `data.methods` entry using its `label`. Send the gateway's `type` as `payment_method`. Initialize Stripe.js with the gateway's publishable key and account ID for card and wallet methods.
 
-- **`card`** — mount a Stripe **card Element**, `createPaymentMethod({ type: 'card', card, billing_details })`, send `stripe_payment_method: paymentMethod.id`.
-- **`apple_pay` / `google_pay`** — a Stripe **Payment Request Button** built from `methods.<key>.options` (already carries country/currency/total); its result yields the PaymentMethod id for `stripe_payment_method`.
-- **`klarna` / `ideal` / `bancontact` / other redirect methods** — confirm via Stripe with that `payment_method_types`; the Place Order response comes back `payment.state === "redirect"` → send the shopper to `payment.redirect_url`.
-
-Every stripe sub-method ends the same way: `payment_method: "stripe"` + `stripe_payment_method: "<pm_… id>"` in the Place Order body. There is no separate `payment_method: "card"` value — `"card"` is a Stripe sub-method key, not a gateway.
+- For `card`, use Stripe Elements to create a PaymentMethod and send its `pm_…` ID in `stripe_payment_method`.
+- For `apple_pay` or `google_pay`, build the Payment Request from the method's `options` and send the PaymentMethod ID returned by the wallet.
+- For redirect methods such as `klarna`, `ideal` and `bancontact`, send the literal method key in `stripe_payment_method`. The server prepares the payment. When Place Order returns `payment.state === "redirect"`, send the shopper to `payment.redirect_url`.
 
 Related cart fields (informational — the render source is `data.methods` above):
 
@@ -500,13 +521,13 @@ Per-gateway additions — branch only on `type`, guided by `payload`:
 
   When the Place Order response comes back with `payment.state === "redirect"`, send the shopper to `payment.redirect_url` (3-D Secure or the redirect method's approval page). No `card` object is ever sent for Stripe.
 
-  For redirect methods also send `return_url` in the Place Order body — the URL on your store's site where the platform lands the shopper after the provider finishes. The host must match your store's registered site URL; a `return_url` on any other host is ignored and the shopper is sent to the site root instead. Without a `return_url` the site root is used. Either way the shopper arrives with `?cartgenie_return=success|cancel&cart=<guid>` appended; the URL is revisit-safe (refreshing it shows the same outcome). On `success` the cart is finalized — clear the stored guid and show the confirmation.
+  To direct the shopper to a storefront page after a redirect payment, send a `return_url` with the same scheme, hostname and port as the configured Site URL. The configured Site URL is the fallback. Stores without a Site URL use the configured payment return URL or the standard CartGenie return page. A storefront return includes `cartgenie_return=success|cancel` and can include a `cart` GUID. On success, clear the finalized cart GUID and show the confirmation. The result can be revisited.
 - `offline` — add `"offline_payment_method": "<custom attribute of the chosen method>"` (available methods are in the gateway's `data`).
 - `paypal` / `test-paypal` — PayPal flow; follow the redirect returned in the response.
 
 ### Retries and idempotency
 
-Send an `Idempotency-Key` header with Place Order (any stable string, one per checkout attempt; reuse it when retrying after a timeout). When a headless store receives a retry whose key already produced an order, the API replays the original response — marked with an `Idempotency-Replay: true` header — instead of creating a duplicate order or answering 404 for the finalized cart. Only order-creating outcomes are replayed; a failed payment can be retried with the same key.
+Send an `Idempotency-Key` header with Place Order (any stable string, one per checkout attempt; reuse it when retrying after a timeout). When a headless store receives a retry whose key already produced an order, the API replays the original response — marked with an `Idempotency-Replay: true` header — instead of creating a duplicate order or answering 404 for the finalized cart. Successful order responses are replayable for 24 hours. A failed payment can be retried with the same key.
 
 ### Result
 
@@ -526,7 +547,7 @@ After `success`, discard the stored cart guid — the cart is finalized and must
 
 `GET /order/{order}` returns an order by id (for confirmation deep-links or webhook-driven flows).
 
-Headless orders skip address validation entirely: the shipping address is stored exactly as the shopper entered it, and no "Validated address" badge appears on orders or emails.
+Headless orders use the shopper-entered shipping address and skip carrier address verification. Required address fields and country and region rules still apply.
 
 ## Going live with real payments
 

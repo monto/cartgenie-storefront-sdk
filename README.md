@@ -21,7 +21,7 @@ Card data never reaches the CartGenie API raw: real gateways tokenize in the bro
 ## Quickstart
 
 ```ts
-import { CartGenie } from '@cartgenie/storefront';
+import { CartGenie, type PlaceOrderInput } from '@cartgenie/storefront';
 
 const cartgenie = new CartGenie({
   apiKey: process.env.CARTGENIE_PUBLIC_API_KEY!,
@@ -33,8 +33,17 @@ const { data: products } = await cartgenie.products.list({ limit: 50 });
 const product = await cartgenie.products.get('t-shirt');
 const { data: categories } = await cartgenie.categories.list();
 
+// With Headless catalog search enabled. maxPrice uses the same integer units as the variant price.
+const { data: mugs } = await cartgenie.products.list({
+  q: 'ceramic mug',
+  category: 'drinkware',
+  maxPrice: 1999,
+  sort: 'price_asc',
+});
+
 // Cart — created on first addItem; the guid persists in localStorage automatically
-const variant = product.variants[0];
+// This sandbox example uses a one-time product without options.
+const variant = product.variants.find((item) => !item.disabled && !item.out_of_stock && !item.subscription);
 if (!variant) {
   throw new Error('Product has no purchasable variants');
 }
@@ -44,43 +53,61 @@ await cartgenie.cart.addItem({ product_variant_id: variant.id, quantity: 1 });
 let cart = await cartgenie.cart.get();
 console.log(cart.checkout?.formatted_total);
 
-// Checkout — bootstrap FIRST: countries and regions come from the API only.
-// Render country/region as selects bound to these ids; free-text values are rejected.
+// Bootstrap before rendering country and region selects. The sample address is in California.
 const bootstrap = await cartgenie.checkout.get();
-const country = bootstrap.billing_countries[0]!;           // e.g. { id: 'us', regions: [{ id: 'us-ca', ... }] }
-const region = country.jurisdiction_region_required ? country.regions[0]!.id : country.id;
+const country = bootstrap.billing_countries.find((option) => option.id === 'us');
+const region = country?.regions.find((option) => option.id === 'us-ca');
+if (!country || !region) {
+  throw new Error('Choose a test store that supports billing to California');
+}
 
-await cartgenie.checkout.setEmail('jane@example.com', 'Jane Doe');
+const email = 'jane@example.com';
+const name = 'Jane Doe';
+const zip = '94105';
+const billingAddress = {
+  full_name: name, email, country: country.id, region: region.id, city: 'San Francisco',
+  line_one: '123 Main St', zip, confirmed: true,
+};
+
+await cartgenie.checkout.setEmail(email, name);
 cart = await cartgenie.checkout.setAddress({
-  country: country.id, region, city: 'San Francisco',
-  address_line_one: '123 Main St', postal_code: '94105', name: 'Jane Doe',
+  country: country.id, region: region.id, city: billingAddress.city,
+  address_line_one: billingAddress.line_one, postal_code: zip, name, email,
 });
 
-// Physical goods: pick a shipping method before placing the order
+let shipping: Pick<PlaceOrderInput, 'shipping_address' | 'shipping_method'> = {};
 if (cart.checkout?.has_shipping) {
-  await cartgenie.checkout.setJurisdictions('us-ca');
-  const shippingMethods = await cartgenie.checkout.shippingMethods('us-ca', '94105');
-  const method = shippingMethods[0];
+  const shippingCountry = bootstrap.shipping_countries.find((option) => option.id === country.id);
+  const shippingRegion = shippingCountry?.regions.find((option) => option.id === region.id);
+  if (!shippingCountry || !shippingRegion) {
+    throw new Error('Choose a test store that ships to the sample California address');
+  }
+  await cartgenie.checkout.setJurisdictions(region.id, shippingRegion.id);
+  const [method] = await cartgenie.checkout.shippingMethods(shippingRegion.id, zip);
   if (!method) {
     throw new Error('No shipping methods matched the address');
   }
   await cartgenie.checkout.setShippingMethod(method.id);
+  shipping = {
+    shipping_address: { ...billingAddress, country: shippingCountry.id, region: shippingRegion.id },
+    shipping_method: method.id,
+  };
 }
 
 const methods = await cartgenie.checkout.paymentMethods();
-// methods[n].payload tells you which fields each gateway needs — render the form from it.
-// methods[n].data carries the visible payment OPTIONS: for stripe, data.methods is the map of
-// enabled sub-methods (card / klarna / apple_pay / google_pay / link) — offer exactly those keys.
+// Use the gateway's payload and data.methods to build the payment form.
+// This sample submits a Dummy test payment.
+if (!methods.some((method) => method.type === 'dummy')) {
+  throw new Error('Enable the Dummy payment gateway on the test store');
+}
 
 const result = await cartgenie.checkout.placeOrder({
-  customer_email: 'jane@example.com',
-  customer_name: 'Jane Doe',
+  customer_email: email,
+  customer_name: name,
   payment_method: 'dummy',
   card: { number: '4242424242424242', expiry_month: 6, expiry_year: 2030, cvv: '123' },
-  billing_address: {
-    full_name: 'Jane Doe', country: 'us', region: 'us-ca', city: 'San Francisco',
-    line_one: '123 Main St', zip: '94105', confirmed: true,
-  },
+  billing_address: billingAddress,
+  ...shipping,
 });
 
 switch (result.payment?.state) {
@@ -229,8 +256,8 @@ const result = await cartgenie.checkout.placeOrder(
     payment_method: klarna.gateway,
     stripe_payment_method: klarna.method!,
     // Where the shopper lands after approving (or canceling) on the provider's
-    // site. Must be a URL on your store's registered site host (dashboard →
-    // Settings → Storefront → Site URL); any other host falls back to the site URL.
+    // site. Match the origin of the Site URL in Settings → Storefront.
+    // The configured Site URL is the fallback.
     return_url: `${location.origin}/checkout/complete`,
   },
   { idempotencyKey: crypto.randomUUID() },
@@ -242,7 +269,7 @@ When the cart ships, `shipping_address.email` is required — copy the customer'
 
 #### Handling the return
 
-After the shopper approves the payment on the provider's site, the platform redirects them to your `return_url` (or your store's site root when none was sent) with `?cartgenie_return=success|cancel&cart=<guid>` appended. Detect it on page load:
+For stores with a configured Site URL, the shopper returns to the matching `return_url` or to the Site URL. The URL carries `cartgenie_return=success|cancel` and may include `cart`. Detect the status on page load.
 
 ```ts
 import { parseCheckoutReturn } from '@cartgenie/storefront';
@@ -277,7 +304,7 @@ Every failed request throws a typed error:
 
 - `CartGenieError` — non-2xx API response. For HTTP 422, dotted server keys are pre-mapped for forms via `fieldErrors()`; for HTTP 429, `retryAfterSeconds` carries the server's `Retry-After`.
 - `CartGenieProtocolError` — 2xx response whose body fails the contract checks: the `{ data }` envelope, container types, and the key model fields the SDK renders from (cart `guid` + `items`, product `id`/`slug`/`name`/`variants`, category `id`/`slug`/`name`, checkout `payment.state`). Fields beyond those are passed through as-is.
-- `CartGenieNetworkError` — the request never reached the API (offline, DNS, CORS, abort); inspect `cause`.
+- `CartGenieNetworkError` — the request or response read failed. Inspect `cause` and reuse the same idempotency key when retrying an uncertain checkout.
 
 ```ts
 import { CartGenieError } from '@cartgenie/storefront';
@@ -294,7 +321,7 @@ try {
 }
 ```
 
-Read calls (`products.*`, `categories.list`, `cart.get`, `checkout.shippingMethods` / `paymentMethods`, `orders.get`) accept an `AbortSignal`:
+These SDK methods (`products.*`, `categories.list`, `cart.get`, `checkout.shippingMethods` / `paymentMethods`, `orders.get`) accept an `AbortSignal`:
 
 ```ts
 const controller = new AbortController();

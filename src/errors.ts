@@ -77,7 +77,7 @@ export class CartGenieProtocolError extends CartGenieError {
   }
 }
 
-/** The request never reached the API (DNS, offline, CORS, abort). Inspect `cause`. */
+/** The request or response read failed at the transport layer. Inspect `cause`. */
 export class CartGenieNetworkError extends CartGenieError {
   constructor(message: string, cause: unknown) {
     super(message, 0, {}, { cause });
