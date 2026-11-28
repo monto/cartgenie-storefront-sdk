@@ -113,7 +113,7 @@ interface Product {
     /** Default variant images when the default_variant feature is enabled. */
     image_url?: string | null;
     image_url_large?: string | null;
-    /** @deprecated Current responses expose image_url and image_url_large at the top level. */
+    /** @deprecated Use the top-level image_url and image_url_large when default_variant is enabled. */
     images?: {
         image_url?: string | null;
         image_url_large?: string | null;
@@ -533,7 +533,11 @@ declare class Orders {
 }
 
 type ProductSort = 'name' | 'newest' | 'price_asc' | 'price_desc';
-interface ListProductsOptions extends CallOptions {
+interface ProductReadOptions extends CallOptions {
+    /** Existing cart GUID for jurisdiction-aware storefront pricing. */
+    cart?: string;
+}
+interface ListProductsOptions extends ProductReadOptions {
     limit?: number;
     cursor?: string;
     q?: string;
@@ -541,8 +545,6 @@ interface ListProductsOptions extends CallOptions {
     sort?: ProductSort;
     /** Inclusive maximum in the same integer units as ProductVariant.price. */
     maxPrice?: number;
-    /** Existing cart GUID for jurisdiction-aware storefront pricing. */
-    cart?: string;
 }
 declare class Products {
     private readonly http;
@@ -550,8 +552,8 @@ declare class Products {
     /** Cursor-paginated catalog listing (headless stores). Follow meta.next_cursor for more pages. */
     list(options?: ListProductsOptions): Promise<Paginated<Product>>;
     /** Fetch specific products by slug (exempt from the catalog rate limit). */
-    bySlugs(slugs: string[], options?: CallOptions): Promise<Paginated<Product>>;
-    get(slug: string, options?: CallOptions): Promise<Product>;
+    bySlugs(slugs: string[], options?: ProductReadOptions): Promise<Paginated<Product>>;
+    get(slug: string, options?: ProductReadOptions): Promise<Product>;
 }
 
 declare class CartGenieError extends Error {
@@ -706,4 +708,4 @@ declare class CartGenie {
     constructor(config: CartGenieConfig);
 }
 
-export { type AddItemInput, type CallOptions, type Cart, type CartDiscount, CartGenie, type CartGenieConfig, CartGenieError, CartGenieNetworkError, CartGenieProtocolError, type CartItem, type CartItemOption, type CartStorage, type Category, type CheckoutAddressInput, type CheckoutBlock, type CheckoutBootstrap, type CheckoutReturn, type CountryOption, DEFAULT_BASE_URL, type ListCategoriesOptions, type ListProductsOptions, type Order, type OrderAddress, type Paginated, type PaymentFieldRules, type PaymentMethod, type PaymentOption, type PaymentOptionKind, type PlaceOrderInput, type PlaceOrderOptions, type PlaceOrderResult, type Product, type ProductCategory, type ProductOption, type ProductOptionValue, type ProductSort, type ProductVariant, type RegionOption, type ShippingCountryOption, type ShippingMethod, type StripeGatewayData, type StripePaymentRequestLike, type StripeWalletClient, type StripeWalletOptions, type SubscriptionTerms, type WalletCapability, type WalletPaymentMethodEvent, type WalletPaymentRequestOptions, defaultStorage, parseCheckoutReturn, payWithWallet, probeWalletSupport, toPaymentOptions };
+export { type AddItemInput, type CallOptions, type Cart, type CartDiscount, CartGenie, type CartGenieConfig, CartGenieError, CartGenieNetworkError, CartGenieProtocolError, type CartItem, type CartItemOption, type CartStorage, type Category, type CheckoutAddressInput, type CheckoutBlock, type CheckoutBootstrap, type CheckoutReturn, type CountryOption, DEFAULT_BASE_URL, type ListCategoriesOptions, type ListProductsOptions, type Order, type OrderAddress, type Paginated, type PaymentFieldRules, type PaymentMethod, type PaymentOption, type PaymentOptionKind, type PlaceOrderInput, type PlaceOrderOptions, type PlaceOrderResult, type Product, type ProductCategory, type ProductOption, type ProductOptionValue, type ProductReadOptions, type ProductSort, type ProductVariant, type RegionOption, type ShippingCountryOption, type ShippingMethod, type StripeGatewayData, type StripePaymentRequestLike, type StripeWalletClient, type StripeWalletOptions, type SubscriptionTerms, type WalletCapability, type WalletPaymentMethodEvent, type WalletPaymentRequestOptions, defaultStorage, parseCheckoutReturn, payWithWallet, probeWalletSupport, toPaymentOptions };

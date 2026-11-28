@@ -174,6 +174,32 @@ describe('CartGenie SDK', () => {
     expect(call(fetchMock, 0)[0]).toBe(`${BASE}/products?slugs=t-shirt%2Cmug`);
   });
 
+  it('keeps cart pricing and cancellation on slug and detail reads', async () => {
+    const product = { id: 1, name: 'Mug', slug: 'mug', variants: [] };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: [product] }))
+      .mockResolvedValueOnce(jsonResponse({ data: product }));
+
+    const options = { cart: 'CART1', signal: new AbortController().signal };
+    await sdk.products.bySlugs(['mug'], options);
+    await sdk.products.get('mug', options);
+
+    const init = expect.objectContaining({ signal: options.signal });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `${BASE}/products?slugs=mug&cart=CART1`, init);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `${BASE}/product/mug?cart=CART1`, init);
+  });
+
+  it('honors cancellation on an empty slug lookup without a request', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = sdk.products.bySlugs([], { signal: controller.signal });
+
+    await expect(result).rejects.toBeInstanceOf(CartGenieNetworkError);
+    await expect(result).rejects.toHaveProperty('cause', controller.signal.reason);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('returns an empty slug lookup without requesting the full catalog', async () => {
     await expect(sdk.products.bySlugs([])).resolves.toEqual({ data: [] });
     await expect(sdk.products.bySlugs(['', ' '])).resolves.toEqual({ data: [] });

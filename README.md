@@ -42,10 +42,15 @@ const { data: mugs } = await cartgenie.products.list({
 });
 
 // Cart — created on first addItem; the guid persists in localStorage automatically
-// This sandbox example uses a one-time product without options.
-const variant = product.variants.find((item) => !item.disabled && !item.out_of_stock && !item.subscription);
+// A storefront picker lists the available variants and uses each variant's ID as its value.
+const available = product.variants.filter((item) => !item.disabled && !item.out_of_stock && !item.subscription);
+
+// For the T-shirt in the API guide, the shopper chose the variant listed with slug 'red'.
+const variant = product.options.length > 0
+  ? available.find((item) => item.slug === 'red')
+  : available[0];
 if (!variant) {
-  throw new Error('Product has no purchasable variants');
+  throw new Error('The selected variant is unavailable for a one-time purchase');
 }
 await cartgenie.cart.addItem({ product_variant_id: variant.id, quantity: 1 });
 // Several at once: await cartgenie.cart.addItems([{ product_variant_id: 11 }, { product_variant_id: 12 }]);

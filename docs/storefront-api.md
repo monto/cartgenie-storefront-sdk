@@ -82,7 +82,7 @@ Each product includes `url` and `categories` when the search flag is on. `url` i
 
 Notes:
 
-- Render one select per `options[]` entry and use the value's `slug`. For a selected combination, sort the value slugs and join them with hyphens to find the matching variant by `slug`. Send that variant's `id` as `product_variant_id`.
+- Let the shopper choose a returned `variants[]` entry and send its `id` as `product_variant_id`. A variant picker can show the SKU or variant slug. If you render one picker per option, use an explicit mapping from each complete selection to a variant ID. Option value slugs alone cannot reliably identify a variant.
 - With `default_variant` active, the product includes top-level `image_url` and `image_url_large`, and variants include `is_default`. Only the default variant includes `selected_options`. This maps option slugs to value slugs or returns `[]` for an empty selection.
 - Nullable/inactive fields may be omitted from variant objects.
 - Image URLs point at CartGenie-hosted media; hotlink or proxy them as you prefer.

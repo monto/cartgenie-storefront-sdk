@@ -74,7 +74,7 @@ export interface Product {
   /** Default variant images when the default_variant feature is enabled. */
   image_url?: string | null;
   image_url_large?: string | null;
-  /** @deprecated Current responses expose image_url and image_url_large at the top level. */
+  /** @deprecated Use the top-level image_url and image_url_large when default_variant is enabled. */
   images?: { image_url?: string | null; image_url_large?: string | null };
   options: ProductOption[];
   variants: ProductVariant[];
