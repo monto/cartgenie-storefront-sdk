@@ -1,6 +1,8 @@
 export interface ProductOptionValue {
   value: string;
-  value_slug: string;
+  slug: string;
+  /** @deprecated Use slug, the option value identifier returned by the API. */
+  value_slug?: string;
   [key: string]: unknown;
 }
 
@@ -27,6 +29,10 @@ export interface ProductVariant {
   price?: number;
   formatted_price?: string;
   formatted_compare_at_price?: string;
+  is_default?: boolean;
+  /** On the default variant, maps option slugs to value slugs. An empty selection is []. */
+  selected_options?: Record<string, string> | [];
+  disabled?: boolean;
   out_of_stock?: boolean;
   stock_quantity?: number | null;
   track_inventory?: boolean;
@@ -47,15 +53,28 @@ export interface ProductVariant {
   [key: string]: unknown;
 }
 
+export interface ProductCategory {
+  slug: string;
+  name: string;
+}
+
 export interface Product {
   id: number;
   name: string;
   slug: string;
+  /** Headless catalog search only. Null until the store has configured a site URL. */
+  url?: string | null;
+  /** Published categories returned by the Headless catalog search. */
+  categories?: ProductCategory[];
   /** Store-authored HTML. Present on single-product responses only — the catalog listing omits it. */
   description?: string | null;
   meta_description?: string | null;
   /** Product-level gallery image URLs (variant images live on each variant). */
   gallery?: string[];
+  /** Default variant images when the default_variant feature is enabled. */
+  image_url?: string | null;
+  image_url_large?: string | null;
+  /** @deprecated Use the top-level image_url and image_url_large when default_variant is enabled. */
   images?: { image_url?: string | null; image_url_large?: string | null };
   options: ProductOption[];
   variants: ProductVariant[];
@@ -108,8 +127,8 @@ export interface CartDiscount {
   messages?: string[];
 }
 
-/** Map of Place-Order body field (dotted path) to its validation rules. Null for non-headless stores. */
-export type PaymentFieldRules = Record<string, string[]> | null;
+/** Gateway-specific Place Order rules. Empty array when the gateway has none, null for non-headless stores. */
+export type PaymentFieldRules = Record<string, string[]> | [] | null;
 
 export interface PaymentMethod {
   type: string;
@@ -272,11 +291,10 @@ export interface PlaceOrderInput {
   offline_payment_method?: string;
   /**
    * Where the platform sends the shopper after a redirect payment method
-   * (Klarna, iDEAL, …) completes on the provider's site. Must live on the
-   * store's registered site host — other hosts are ignored and the shopper
-   * lands on the store's site root instead. The shopper arrives with
-   * `?cartgenie_return=success|cancel&cart=<guid>` appended — see
-   * `parseCheckoutReturn()`.
+   * (Klarna, iDEAL, …) completes on the provider's site. Match the scheme,
+   * hostname and port of the store's configured Site URL. The Site URL is
+   * the fallback. A configured storefront return includes cartgenie_return;
+   * see parseCheckoutReturn() for the status and optional cart GUID.
    */
   return_url?: string;
   [key: string]: unknown;

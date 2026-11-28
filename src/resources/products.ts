@@ -1,10 +1,23 @@
 import { productOf, productsOf } from '../contract';
+import { CartGenieNetworkError } from '../errors';
 import type { CallOptions, Http } from '../http';
 import type { Paginated, Product } from '../types';
 
-export interface ListProductsOptions extends CallOptions {
+export type ProductSort = 'name' | 'newest' | 'price_asc' | 'price_desc';
+
+export interface ProductReadOptions extends CallOptions {
+  /** Existing cart GUID for jurisdiction-aware storefront pricing. */
+  cart?: string;
+}
+
+export interface ListProductsOptions extends ProductReadOptions {
   limit?: number;
   cursor?: string;
+  q?: string;
+  category?: string;
+  sort?: ProductSort;
+  /** Inclusive maximum in the same integer units as ProductVariant.price. */
+  maxPrice?: number;
 }
 
 const MEASUREMENT_FIELDS = ['height', 'length', 'width', 'weight'] as const;
@@ -35,7 +48,15 @@ export class Products {
   /** Cursor-paginated catalog listing (headless stores). Follow meta.next_cursor for more pages. */
   async list(options: ListProductsOptions = {}): Promise<Paginated<Product>> {
     const { status, body } = await this.http.requestRaw('GET', '/products', {
-      query: { limit: options.limit, cursor: options.cursor },
+      query: {
+        limit: options.limit,
+        cursor: options.cursor,
+        q: options.q,
+        category: options.category,
+        sort: options.sort,
+        max_price: options.maxPrice,
+        cart: options.cart,
+      },
       signal: options.signal,
     });
 
@@ -43,18 +64,30 @@ export class Products {
   }
 
   /** Fetch specific products by slug (exempt from the catalog rate limit). */
-  async bySlugs(slugs: string[], options: CallOptions = {}): Promise<Paginated<Product>> {
+  async bySlugs(slugs: string[], options: ProductReadOptions = {}): Promise<Paginated<Product>> {
+    const requestedSlugs = slugs.filter((slug) => slug.trim() !== '');
+    if (requestedSlugs.length === 0) {
+      if (options.signal?.aborted) {
+        throw new CartGenieNetworkError('CartGenie product lookup was aborted', options.signal.reason);
+      }
+
+      return { data: [] };
+    }
+
     const { status, body } = await this.http.requestRaw('GET', '/products', {
-      query: { slugs: slugs.join(',') },
+      query: { slugs: requestedSlugs.join(','), cart: options.cart },
       signal: options.signal,
     });
 
     return withDisplayMeasurementsPage(productsOf(body, '/products', status));
   }
 
-  async get(slug: string, options: CallOptions = {}): Promise<Product> {
+  async get(slug: string, options: ProductReadOptions = {}): Promise<Product> {
     const endpoint = `/product/${encodeURIComponent(slug)}`;
-    const { status, body } = await this.http.requestRaw('GET', endpoint, { signal: options.signal });
+    const { status, body } = await this.http.requestRaw('GET', endpoint, {
+      query: { cart: options.cart },
+      signal: options.signal,
+    });
 
     return withDisplayMeasurements(productOf(body, endpoint, status));
   }

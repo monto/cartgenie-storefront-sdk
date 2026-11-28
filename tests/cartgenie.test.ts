@@ -128,12 +128,82 @@ describe('CartGenie SDK', () => {
     expect(page.data[0]!.variants[0]!.weight).toBe(0.5);
   });
 
+  it('passes search, category, sort, budget, and cart with a catalog cursor', async () => {
+    const categories = [{ slug: 'drinkware', name: 'Drinkware' }];
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        data: [{
+          id: 1,
+          name: 'Ceramic Mug',
+          slug: 'ceramic-mug',
+          url: null,
+          categories,
+          image_url: 'https://example.com/blue-mug.jpg',
+          options: [{ name: 'Color', slug: 'color', values: [{ value: 'Blue', slug: 'blue' }] }],
+          variants: [{ id: 11, slug: 'blue', is_default: true, selected_options: { color: 'blue' } }],
+        }],
+      }),
+    );
+
+    const page = await sdk.products.list({
+      limit: 10,
+      cursor: 'next',
+      q: 'ceramic mug',
+      category: 'drinkware',
+      sort: 'price_asc',
+      maxPrice: 0,
+      cart: 'CART1',
+    });
+
+    const url = new URL(call(fetchMock, 0)[0]);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      limit: '10', cursor: 'next', q: 'ceramic mug', category: 'drinkware', sort: 'price_asc', max_price: '0', cart: 'CART1',
+    });
+    expect(page.data[0]!.url).toBeNull();
+    expect(page.data[0]!.categories).toEqual(categories);
+    expect(page.data[0]!.image_url).toBe('https://example.com/blue-mug.jpg');
+    expect(page.data[0]!.options[0]!.values[0]!.slug).toBe('blue');
+    expect(page.data[0]!.variants[0]!.selected_options).toEqual({ color: 'blue' });
+  });
+
   it('joins slugs for slug-based product fetches', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     await sdk.products.bySlugs(['t-shirt', 'mug']);
 
     expect(call(fetchMock, 0)[0]).toBe(`${BASE}/products?slugs=t-shirt%2Cmug`);
+  });
+
+  it('keeps cart pricing and cancellation on slug and detail reads', async () => {
+    const product = { id: 1, name: 'Mug', slug: 'mug', variants: [] };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: [product] }))
+      .mockResolvedValueOnce(jsonResponse({ data: product }));
+
+    const options = { cart: 'CART1', signal: new AbortController().signal };
+    await sdk.products.bySlugs(['mug'], options);
+    await sdk.products.get('mug', options);
+
+    const init = expect.objectContaining({ signal: options.signal });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `${BASE}/products?slugs=mug&cart=CART1`, init);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `${BASE}/product/mug?cart=CART1`, init);
+  });
+
+  it('honors cancellation on an empty slug lookup without a request', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = sdk.products.bySlugs([], { signal: controller.signal });
+
+    await expect(result).rejects.toBeInstanceOf(CartGenieNetworkError);
+    await expect(result).rejects.toHaveProperty('cause', controller.signal.reason);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty slug lookup without requesting the full catalog', async () => {
+    await expect(sdk.products.bySlugs([])).resolves.toEqual({ data: [] });
+    await expect(sdk.products.bySlugs(['', ' '])).resolves.toEqual({ data: [] });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('creates a cart on first addItem, persists the guid, and reuses it', async () => {

@@ -26,7 +26,7 @@ Product detail page — the product's name, rich description, photo gallery, SKU
 
 Cart — every item with its photo, the chosen options (e.g. "Size: M, Color: Red"), a quantity selector and a remove button. A box for a discount code. A clear total that lists subtotal, discount, shipping and tax separately.
 
-Checkout — a guided, friendly flow, not a bare form. Country and state/region are dropdowns filled from the store's data. When the order ships, shipping options appear as selectable choices with their prices. Payment methods appear as clear options — exactly the ones this store offers, looking professional. The shopper only types their email and street address; everything else is picked from options. Validation problems show as friendly messages next to the field that needs fixing. For Apple Pay or Google Pay, complete the address and shipping steps before opening the wallet. For PayPal, show the standard `paypal` method when available, omit `paypal_express`, and use Place Order followed by the approval redirect. When PayPal Express is requested, use the Storefront API guide's headless PayPal Express example as a separate button.
+Checkout — a guided, friendly flow, not a bare form. Country and state/region are dropdowns filled from the store's data. When the order ships, shipping options appear as selectable choices with their prices. Payment methods appear as clear options — exactly the ones this store offers, looking professional. Collect the contact details and address fields required by checkout. Validation problems show as friendly messages next to the field that needs fixing. For Apple Pay or Google Pay, complete the address and shipping steps before opening the wallet. For PayPal, show the standard `paypal` method when available, omit `paypal_express`, and use Place Order followed by the approval redirect. When PayPal Express is requested, use the Storefront API guide's headless PayPal Express example as a separate button.
 
 Confirmation — after a successful purchase, a clear screen with the order number.
 
@@ -46,7 +46,7 @@ On product pages, render the color option as clickable swatches instead of a dro
 **Category navigation**
 
 ```text
-Add category navigation: fetch the store's categories from the SDK and render them as a menu; each category page lists its products in the same grid style. Use each category's description and meta description on its page.
+Build category navigation from the SDK's category list. With Headless catalog search enabled, pass each category's slug to products.list({ category }) to show its products. Use the category description and meta description on its page.
 ```
 
 **Instant image switching**

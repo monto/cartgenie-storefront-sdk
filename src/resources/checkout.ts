@@ -7,6 +7,7 @@ import type {
   Cart,
   CheckoutAddressInput,
   CheckoutBootstrap,
+  PaymentFieldRules,
   PaymentMethod,
   PaymentOption,
   PlaceOrderInput,
@@ -142,7 +143,7 @@ export class Checkout {
    * evaluated client-side (conditional rules need server state); the server
    * stays the source of truth.
    */
-  validateOrder(input: PlaceOrderInput, rules: Record<string, string[]> | null | undefined): string[] {
+  validateOrder(input: PlaceOrderInput, rules: PaymentFieldRules | undefined): string[] {
     const missing: string[] = [];
 
     for (const [path, fieldRules] of Object.entries(rules ?? {})) {
